@@ -39,9 +39,49 @@ model PaymentCard {
 
 // Companies that use the typing center
 model Company {
-  id    Int    @id @default(autoincrement())
-  name  String @unique
+  id      Int             @id @default(autoincrement())
+  name    String          @unique
+  records CompanyRecord[]
 }
+
+model CompanyRecord {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category       String    // e.g. "Trade License", "Health Insurance", "Visa", "Other Documents"
+  employeeName   String    @default("")
+  documentNumber String    @default("")
+  documentType   String    @default("")
+  issueDate      DateTime?
+  expiryDate     DateTime?
+  status         String    @default("Active")
+  notes          String    @default("")
+  createdAt      DateTime  @default(now())
+}
+
+// Individuals who use the typing center for personal services (Visa, Emirates ID, Insurance, etc.)
+model Individual {
+  id      Int                @id @default(autoincrement())
+  name    String             @unique
+  phone   String             @default("")
+  records IndividualRecord[]
+}
+
+model IndividualRecord {
+  id             Int        @id @default(autoincrement())
+  individualId   Int
+  individual     Individual @relation(fields: [individualId], references: [id], onDelete: Cascade)
+  category       String     // e.g. "Visa", "Health Insurance", "Emirates ID", "Other Documents"
+  holderName     String     @default("") // Name of applicant (Self or family member/dependent)
+  documentNumber String     @default("")
+  documentType   String     @default("")
+  issueDate      DateTime?
+  expiryDate     DateTime?
+  status         String     @default("Active")
+  notes          String     @default("")
+  createdAt      DateTime   @default(now())
+}
+
 
 model Application {
   id              Int      @id @default(autoincrement())
@@ -51,6 +91,7 @@ model Application {
   customerType    String   @default("Individual")
   status          String   @default("Pending")
   createdAt       DateTime @default(now())
+  createdBy       String   @default("") // staff username who created it
 
   serviceId       Int
   service         Service  @relation(fields: [serviceId], references: [id])
@@ -66,3 +107,21 @@ model Application {
   // Our fee (serviceCharge - govtFee)
   typingFee       Float    @default(0)
 }
+
+model User {
+  id        Int     @id @default(autoincrement())
+  username  String  @unique
+  password  String           // hashed or plain (depending on hashing preference)
+  fullName  String
+  role      String  @default("Staff")  // "Admin" or "Staff"
+  isActive  Boolean @default(true)
+}
+
+model Expense {
+  id            Int      @id @default(autoincrement())
+  description   String
+  amount        Float
+  paymentMethod String   @default("Cash")
+  createdAt     DateTime @default(now())
+}
+

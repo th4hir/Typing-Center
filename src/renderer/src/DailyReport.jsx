@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Spinner, Alert, Table } from 'react-bootstrap'
+import { ApplicationIcon, SalesIcon, CardIcon, SaveIcon, ReportIcon } from './Icons'
 
 function getTodayString() {
   const d = new Date()
@@ -45,7 +46,7 @@ function DailyReport() {
     const cashIn = applications.filter(a => a.customerPayment === 'Cash').reduce((s, a) => s + a.serviceCharge, 0)
     const cardIn = totalCharge - cashIn
     const cashOut = applications.filter(a => a.govtPayment === 'Cash').reduce((s, a) => s + a.govtFee, 0)
-    const cardOut = totalGovt - cashOut
+    const cardOut = applications.filter(a => a.govtPayment !== 'Cash' && a.govtPayment !== 'N/A').reduce((s, a) => s + a.govtFee, 0)
     return { totalCharge, totalGovt, totalTyping, cashIn, cardIn, cashOut, cardOut, count: applications.length }
   }, [applications])
 
@@ -60,7 +61,9 @@ function DailyReport() {
       {/* Header */}
       <div className="page-header">
         <div className="page-header-left">
-          <h1>📊 Daily Report</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--accent-primary)', display: 'inline-flex' }}><ReportIcon size={24} /></span> Daily Report
+          </h1>
           <p>{displayDate}</p>
         </div>
         <div className="page-header-actions">
@@ -77,29 +80,29 @@ function DailyReport() {
       {/* Summary Cards */}
       <div className="stat-cards">
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">📋</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--accent-primary)' }}>
+            <ApplicationIcon size={24} />
           </div>
           <div className="stat-card-value">{totals.count}</div>
           <div className="stat-card-label">Transactions</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">💰</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--success)' }}>
+            <SalesIcon size={24} />
           </div>
           <div className="stat-card-value">{totals.totalCharge.toFixed(0)}</div>
           <div className="stat-card-label">Total Sales (AED)</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">🏛️</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--info)' }}>
+            <CardIcon size={24} />
           </div>
           <div className="stat-card-value">{totals.totalGovt.toFixed(0)}</div>
-          <div className="stat-card-label">Govt Fees (AED)</div>
+          <div className="stat-card-label">Paid (AED)</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">✅</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--success)' }}>
+            <SaveIcon size={24} />
           </div>
           <div className="stat-card-value">{totals.totalTyping.toFixed(0)}</div>
           <div className="stat-card-label">Profit (AED)</div>
@@ -109,7 +112,7 @@ function DailyReport() {
       {/* Payment Method Breakdown */}
       <div className="report-breakdown">
         <div className="report-break-card">
-          <div className="report-break-title">💵 Money IN (from customers)</div>
+          <div className="report-break-title">Money IN (from customers)</div>
           <div className="report-break-row">
             <span>Cash</span>
             <span className="report-break-val">AED {totals.cashIn.toFixed(2)}</span>
@@ -124,7 +127,7 @@ function DailyReport() {
           </div>
         </div>
         <div className="report-break-card">
-          <div className="report-break-title">💸 Money OUT (to govt/entity)</div>
+          <div className="report-break-title">Money OUT (to govt/entity)</div>
           <div className="report-break-row">
             <span>Cash</span>
             <span className="report-break-val">AED {totals.cashOut.toFixed(2)}</span>
@@ -170,7 +173,7 @@ function DailyReport() {
                   <th>Type</th>
                   <th>Service</th>
                   <th style={{ textAlign: 'right' }}>Charge</th>
-                  <th style={{ textAlign: 'right' }}>Govt Fee</th>
+                  <th style={{ textAlign: 'right' }}>Paid</th>
                   <th style={{ textAlign: 'right' }}>Profit</th>
                   <th>Cust. Paid</th>
                   <th>Govt. Paid</th>

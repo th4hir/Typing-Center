@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Spinner, Alert, Table } from 'react-bootstrap'
+import { CardIcon, SalesIcon, RefreshIcon } from './Icons'
 
 function getMonthRange() {
   const now = new Date()
@@ -39,13 +40,13 @@ function CardAccounts() {
 
   // Grand totals
   const grandTotals = useMemo(() => {
-    if (!data) return { received: 0, paid: 0, net: 0 }
-    const cardReceived = data.cards.reduce((s, c) => s + c.totalReceived, 0)
+    if (!data) return { paid: 0, cardPaid: 0, cashPaid: 0 }
     const cardPaid = data.cards.reduce((s, c) => s + c.totalPaid, 0)
+    const cashPaid = data.cash?.totalPaid || 0
     return {
-      received: cardReceived + (data.cash?.totalReceived || 0),
-      paid: cardPaid + (data.cash?.totalPaid || 0),
-      net: (cardReceived + (data.cash?.totalReceived || 0)) - (cardPaid + (data.cash?.totalPaid || 0))
+      paid: cardPaid + cashPaid,
+      cardPaid,
+      cashPaid
     }
   }, [data])
 
@@ -54,7 +55,9 @@ function CardAccounts() {
       {/* Header */}
       <div className="page-header">
         <div className="page-header-left">
-          <h1>💳 Card Accounts</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: 'var(--accent-primary)', display: 'inline-flex' }}><CardIcon size={24} /></span> Card Accounts
+          </h1>
           <p>Track spending and receipts per payment method</p>
         </div>
         <div className="page-header-actions" style={{ gap: 8, display: 'flex', alignItems: 'center' }}>
@@ -78,27 +81,27 @@ function CardAccounts() {
       </div>
 
       {/* Grand Totals */}
-      <div className="stat-cards">
+      <div className="stat-cards" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">💰</div>
-          </div>
-          <div className="stat-card-value">{grandTotals.received.toFixed(0)}</div>
-          <div className="stat-card-label">Total Received (AED)</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">💸</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--accent-primary)' }}>
+            <SalesIcon size={24} />
           </div>
           <div className="stat-card-value">{grandTotals.paid.toFixed(0)}</div>
           <div className="stat-card-label">Total Paid Out (AED)</div>
         </div>
         <div className="stat-card">
-          <div className="stat-card-header">
-            <div className="stat-card-icon">📊</div>
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--info)' }}>
+            <CardIcon size={24} />
           </div>
-          <div className="stat-card-value">{grandTotals.net.toFixed(0)}</div>
-          <div className="stat-card-label">Net Balance (AED)</div>
+          <div className="stat-card-value">{grandTotals.cardPaid.toFixed(0)}</div>
+          <div className="stat-card-label">Paid via Bank Cards (AED)</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--success)' }}>
+            <SalesIcon size={24} />
+          </div>
+          <div className="stat-card-value">{grandTotals.cashPaid.toFixed(0)}</div>
+          <div className="stat-card-label">Paid via Cash (AED)</div>
         </div>
       </div>
 
@@ -116,7 +119,9 @@ function CardAccounts() {
             <h3>Payment Method Breakdown</h3>
           </div>
           <div className="grid-toolbar-right">
-            <button className="btn-outline-subtle" onClick={loadData}>🔄 Refresh</button>
+            <button className="btn-outline-subtle" onClick={loadData} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <RefreshIcon size={14} /> Refresh
+            </button>
           </div>
         </div>
 
@@ -132,48 +137,35 @@ function CardAccounts() {
                 <tr>
                   <th>Payment Method</th>
                   <th style={{ textAlign: 'center' }}>Status</th>
-                  <th style={{ textAlign: 'right' }}>Received from Customers</th>
-                  <th style={{ textAlign: 'center' }}># Txns</th>
-                  <th style={{ textAlign: 'right' }}>Paid to Govt</th>
-                  <th style={{ textAlign: 'center' }}># Txns</th>
-                  <th style={{ textAlign: 'right' }}>Net Balance</th>
+                  <th style={{ textAlign: 'right' }}>Paid Out</th>
+                  <th style={{ textAlign: 'center' }}>Transactions</th>
                 </tr>
               </thead>
               <tbody>
                 {/* Cash row */}
                 <tr>
-                  <td><span className="payment-method-badge">💵 Cash</span></td>
+                  <td><span className="payment-method-badge">Cash</span></td>
                   <td style={{ textAlign: 'center' }}>—</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{data.cash.totalReceived.toFixed(2)}</td>
-                  <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{data.cash.receivedCount}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{data.cash.totalPaid.toFixed(2)}</td>
                   <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{data.cash.paidCount}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: data.cash.netBalance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {data.cash.netBalance.toFixed(2)}
-                  </td>
                 </tr>
 
                 {/* Card rows */}
                 {data.cards.map((card) => (
                   <tr key={card.id}>
-                    <td><span className="payment-method-badge">💳 {card.bankName}</span></td>
+                    <td><span className="payment-method-badge">{card.bankName}</span></td>
                     <td style={{ textAlign: 'center' }}>
                       <span className={`status-badge ${card.isActive ? 'completed' : 'rejected'}`}>
                         {card.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{card.totalReceived.toFixed(2)}</td>
-                    <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{card.receivedCount}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{card.totalPaid.toFixed(2)}</td>
                     <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{card.paidCount}</td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: card.netBalance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      {card.netBalance.toFixed(2)}
-                    </td>
                   </tr>
                 ))}
 
                 {data.cards.length === 0 && (
-                  <tr><td colSpan={7} className="admin-empty">No bank cards configured — add them in Admin Settings</td></tr>
+                  <tr><td colSpan={4} className="admin-empty">No bank cards configured — add them in Admin Settings</td></tr>
                 )}
               </tbody>
             </Table>
@@ -185,3 +177,4 @@ function CardAccounts() {
 }
 
 export default CardAccounts
+

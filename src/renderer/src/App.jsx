@@ -1,28 +1,74 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AllCommunityModule, themeAlpine } from 'ag-grid-community'
 import { AgGridReact } from 'ag-grid-react'
-import { Modal, Button, Form, Spinner, Alert } from 'react-bootstrap'
+import { Modal, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
 import AdminSettings from './AdminSettings'
 import DailyReport from './DailyReport'
 import CardAccounts from './CardAccounts'
+import LoginScreen from './LoginScreen'
+import CompanyManagement from './CompanyManagement'
+import IndividualManagement from './IndividualManagement'
+import ExpensesManagement from './ExpensesManagement'
+import MonthlyReport from './MonthlyReport'
+import logo from '../../logo.png'
+import {
+  PlusIcon,
+  EditIcon,
+  TrashIcon,
+  RefreshIcon,
+  ExportIcon,
+  CompanyIcon,
+  IndividualIcon,
+  ApplicationIcon,
+  ReportIcon,
+  CardIcon,
+  SettingsIcon,
+  SaveIcon,
+  SalesIcon,
+  PendingIcon,
+  LogoutIcon,
+  CloseIcon,
+  SunIcon,
+  MoonIcon,
+  BellIcon,
+  BillIcon
+} from './Icons'
 
-// ─── Custom AG Grid Dark Theme ──────────────────────────────
-const darkTheme = themeAlpine.withParams({
-  backgroundColor: '#1c1f2e',
-  headerBackgroundColor: '#161922',
-  oddRowBackgroundColor: 'rgba(22, 25, 34, 0.5)',
-  rowHoverColor: '#252840',
-  borderColor: '#2a2d40',
-  headerTextColor: '#8b8fa3',
-  textColor: '#e8eaf0',
-  secondaryTextColor: '#8b8fa3',
+// ─── Custom AG Grid Themes (TAMM Style) ──────────────────────────────
+const lightGridTheme = themeAlpine.withParams({
+  backgroundColor: '#ffffff',
+  headerBackgroundColor: '#f8fafc',
+  oddRowBackgroundColor: 'rgba(248, 250, 252, 0.6)',
+  rowHoverColor: '#f1f5f9',
+  borderColor: '#e2e8f0',
+  headerTextColor: '#4b5563',
+  textColor: '#1f2937',
+  secondaryTextColor: '#4b5563',
   fontFamily: "'Inter', sans-serif",
   fontSize: 14,
   rowHeight: 48,
   headerHeight: 44,
   cellHorizontalPadding: 16,
-  rangeSelectionBorderColor: '#6c63ff',
-  selectedRowBackgroundColor: 'rgba(108, 99, 255, 0.25)',
+  rangeSelectionBorderColor: '#005691',
+  selectedRowBackgroundColor: 'rgba(0, 86, 145, 0.08)',
+})
+
+const darkGridTheme = themeAlpine.withParams({
+  backgroundColor: '#161a23',
+  headerBackgroundColor: '#12141a',
+  oddRowBackgroundColor: 'rgba(248, 250, 252, 0.03)',
+  rowHoverColor: '#1e2230',
+  borderColor: '#1e2230',
+  headerTextColor: '#94a3b8',
+  textColor: '#e2e8f0',
+  secondaryTextColor: '#94a3b8',
+  fontFamily: "'Inter', sans-serif",
+  fontSize: 14,
+  rowHeight: 48,
+  headerHeight: 44,
+  cellHorizontalPadding: 16,
+  rangeSelectionBorderColor: '#007cc3',
+  selectedRowBackgroundColor: 'rgba(0, 124, 195, 0.12)',
 })
 
 // ─── Cell Renderers ──────────────────────────────────────────
@@ -39,6 +85,26 @@ function CustomerTypeRenderer(params) {
   const cls = params.value === 'Company' ? 'company' : 'individual'
   return <span className={`customer-type-badge ${cls}`}>{params.value}</span>
 }
+function ActionsRenderer(params) {
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', height: '100%' }}>
+      <button
+        className="btn-outline-subtle d-flex align-items-center gap-1"
+        style={{ padding: '2px 8px', fontSize: '0.75rem', height: 26, lineHeight: '22px' }}
+        onClick={(e) => { e.stopPropagation(); params.onEdit(params.data); }}
+      >
+        <EditIcon size={12} /> Edit
+      </button>
+      <button
+        className="btn-outline-subtle text-danger d-flex align-items-center gap-1"
+        style={{ padding: '2px 8px', fontSize: '0.75rem', height: 26, lineHeight: '22px', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+        onClick={(e) => { e.stopPropagation(); params.onDelete(params.data); }}
+      >
+        <TrashIcon size={12} /> Delete
+      </button>
+    </div>
+  )
+}
 
 // ─── Empty form state ────────────────────────────────────────
 const emptyForm = {
@@ -50,7 +116,8 @@ const emptyForm = {
   serviceCharge: '',
   customerPayment: 'Cash',
   govtFee: '',
-  govtPayment: 'Cash'
+  govtPayment: 'Cash',
+  status: 'Pending'
 }
 
 // ─── App Component ───────────────────────────────────────────
@@ -59,6 +126,38 @@ function App() {
   const [quickFilter, setQuickFilter] = useState('')
   const [currentPage, setCurrentPage] = useState('applications')
 
+  // ── Theme Management ──
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'light'
+  })
+
+  useEffect(() => {
+    document.body.classList.remove('theme-light', 'theme-dark')
+    document.body.classList.add(`theme-${theme}`)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  // ── User Session ──
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('currentUser')
+      return stored ? JSON.parse(stored) : null
+    } catch {
+      return null
+    }
+  })
+
+  const handleLoginSuccess = useCallback((user) => {
+    setCurrentUser(user)
+    localStorage.setItem('currentUser', JSON.stringify(user))
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    setCurrentUser(null)
+    localStorage.removeItem('currentUser')
+    setCurrentPage('applications')
+  }, [])
+
   // ── Shop config ──
   const [shopConfig, setShopConfig] = useState(null)
   const [showSetup, setShowSetup] = useState(false)
@@ -66,6 +165,7 @@ function App() {
   const [setupAddress, setSetupAddress] = useState('')
   const [setupPhone, setSetupPhone] = useState('')
   const [setupSaving, setSetupSaving] = useState(false)
+  const [editingApplicationId, setEditingApplicationId] = useState(null)
 
   // ── Live data ──
   const [applications, setApplications] = useState([])
@@ -75,26 +175,93 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // ── Modal ──
-  const [showModal, setShowModal] = useState(false)
-  const [modalTab, setModalTab] = useState('individual') // 'individual' | 'company'
-  const [formData, setFormData] = useState(emptyForm)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState(null)
+  const companiesRef = useRef(companies)
+  useEffect(() => {
+    companiesRef.current = companies
+  }, [companies])
 
-  // ── Add Company inline ──
-  const [showAddCompany, setShowAddCompany] = useState(false)
-  const [newCompanyName, setNewCompanyName] = useState('')
-  const [addingCompany, setAddingCompany] = useState(false)
+  const servicesRef = useRef(services)
+  useEffect(() => {
+    servicesRef.current = services
+  }, [services])
 
-  const shopName = shopConfig?.shopName || 'Typing Center'
+  const paymentCardsRef = useRef(paymentCards)
+  useEffect(() => {
+    paymentCardsRef.current = paymentCards
+  }, [paymentCards])
 
-  // ── Computed typing fee ──
-  const typingFee = useMemo(() => {
-    const charge = parseFloat(formData.serviceCharge) || 0
-    const govt = parseFloat(formData.govtFee) || 0
-    return Math.max(0, charge - govt)
-  }, [formData.serviceCharge, formData.govtFee])
+  // ── Column Visibility states ──
+  const [visibleCols, setVisibleCols] = useState({
+    id: true,
+    customerName: true,
+    customerType: true,
+    emiratesId: true,
+    service: true,
+    serviceCharge: true,
+    govtFee: true,
+    typingFee: true,
+    customerPayment: true,
+    createdBy: true,
+    createdAt: true,
+    status: true,
+    actions: true
+  })
+
+  const getFriendlyColName = useCallback((col) => {
+    switch (col) {
+      case 'id': return 'ID'
+      case 'customerName': return 'Customer Name'
+      case 'customerType': return 'Customer Type'
+      case 'emiratesId': return 'Company / EID'
+      case 'service': return 'Service'
+      case 'serviceCharge': return 'Received'
+      case 'govtFee': return 'Paid'
+      case 'typingFee': return 'Profit'
+      case 'customerPayment': return 'Payment Method'
+      case 'createdBy': return 'Staff'
+      case 'createdAt': return 'Date'
+      case 'status': return 'Status'
+      case 'actions': return 'Actions'
+      default: return col
+    }
+  }, [])
+
+  const handleToggleColumn = useCallback((col) => {
+    setVisibleCols(prev => ({ ...prev, [col]: !prev[col] }))
+  }, [])
+
+  // ── Database Connection states ──
+  const [showDbConnectionSetup, setShowDbConnectionSetup] = useState(false)
+  const [checkingDb, setCheckingDb] = useState(true)
+  const [dbConfig, setDbConfig] = useState({
+    host: 'localhost',
+    port: '5432',
+    user: 'postgres',
+    password: 'admin',
+    name: 'typing_center_db'
+  })
+  const [dbSetupSaving, setDbSetupSaving] = useState(false)
+  const [dbSetupError, setDbSetupError] = useState(null)
+
+  const parseDatabaseUrl = (url) => {
+    try {
+      const matches = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/)
+      if (matches) {
+        return {
+          user: matches[1],
+          password: matches[2],
+          host: matches[3],
+          port: matches[4],
+          name: matches[5]
+        }
+      }
+    } catch { }
+    return { user: 'postgres', password: 'admin', host: 'localhost', port: '5432', name: 'typing_center_db' }
+  }
+
+  const buildDatabaseUrl = (user, password, host, port, name) => {
+    return `postgresql://${user}:${password}@${host}:${port}/${name}`
+  }
 
   // ── Loaders ──
   const loadShopConfig = useCallback(async () => {
@@ -136,13 +303,62 @@ function App() {
     } catch (err) { console.error(err) }
   }, [])
 
-  useEffect(() => {
-    loadShopConfig()
-    loadApplications()
-    loadServices()
-    loadPaymentCards()
-    loadCompanies()
+  const verifyDatabaseConnection = useCallback(async () => {
+    try {
+      setCheckingDb(true)
+      const res = await window.api.checkDbConnection()
+      if (res.success) {
+        setShowDbConnectionSetup(false)
+        loadShopConfig()
+        loadApplications()
+        loadServices()
+        loadPaymentCards()
+        loadCompanies()
+      } else {
+        setShowDbConnectionSetup(true)
+        const cfgRes = await window.api.getDbConfig()
+        if (cfgRes.success && cfgRes.data && cfgRes.data.databaseUrl) {
+          const parsed = parseDatabaseUrl(cfgRes.data.databaseUrl)
+          setDbConfig({
+            host: parsed.host,
+            port: parsed.port,
+            user: parsed.user,
+            password: parsed.password,
+            name: parsed.name
+          })
+        }
+      }
+    } catch (err) {
+      setShowDbConnectionSetup(true)
+    } finally {
+      setCheckingDb(false)
+    }
   }, [loadShopConfig, loadApplications, loadServices, loadPaymentCards, loadCompanies])
+
+  // ── Modal ──
+  const [showModal, setShowModal] = useState(false)
+  const [modalTab, setModalTab] = useState('individual') // 'individual' | 'company'
+  const [formData, setFormData] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+
+  // ── Add Company inline ──
+  const [showAddCompany, setShowAddCompany] = useState(false)
+  const [newCompanyName, setNewCompanyName] = useState('')
+  const [addingCompany, setAddingCompany] = useState(false)
+
+  const shopName = shopConfig?.shopName || 'First Choice'
+
+  // ── Computed typing fee ──
+  const typingFee = useMemo(() => {
+    const charge = parseFloat(formData.serviceCharge) || 0
+    const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
+    return Math.max(0, charge - govt)
+  }, [formData.serviceCharge, formData.govtFee, formData.govtPayment])
+
+  useEffect(() => {
+    verifyDatabaseConnection()
+  }, [verifyDatabaseConnection])
 
   // ── Setup submit ──
   const handleSetupSubmit = useCallback(async (e) => {
@@ -163,7 +379,23 @@ function App() {
       const updated = { ...prev, [name]: value }
       if (name === 'serviceId' && value) {
         const svc = services.find(s => s.id === parseInt(value, 10))
-        if (svc) updated.serviceCharge = String(svc.price)
+        if (svc) {
+          updated.serviceCharge = String(svc.price)
+          const nameLower = svc.name.toLowerCase()
+          // Automatically set govtPayment to N/A and govtFee to 0 for print, CV, photocopy, typing, resume services
+          if (
+            nameLower.includes('print') ||
+            nameLower.includes('cv') ||
+            nameLower.includes('resume') ||
+            nameLower.includes('photocopy')
+          ) {
+            updated.govtPayment = 'N/A'
+            updated.govtFee = '0'
+          }
+        }
+      }
+      if (name === 'govtPayment' && value === 'N/A') {
+        updated.govtFee = '0'
       }
       return updated
     })
@@ -186,35 +418,56 @@ function App() {
     // Resolve company name for storage
     let companyName = ''
     if (modalTab === 'company' && formData.companyId) {
-      const comp = companies.find(c => c.id === parseInt(formData.companyId, 10))
+      const comp = companiesRef.current.find(c => c.id === parseInt(formData.companyId, 10))
       companyName = comp ? comp.name : ''
     }
 
     try {
       setSaving(true)
       const charge = parseFloat(formData.serviceCharge) || 0
-      const govt = parseFloat(formData.govtFee) || 0
-      const result = await window.api.createApplication({
-        customerName: formData.customerName.trim(),
-        phone: formData.phone.trim(),
-        emiratesId: modalTab === 'company' ? companyName : formData.emiratesId.trim(),
-        customerType: modalTab === 'company' ? 'Company' : 'Individual',
-        serviceId: parseInt(formData.serviceId, 10),
-        serviceCharge: charge,
-        customerPayment: formData.customerPayment,
-        govtFee: govt,
-        govtPayment: formData.govtPayment,
-        typingFee: Math.max(0, charge - govt)
-      })
+      const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
+      let result
+      if (editingApplicationId) {
+        result = await window.api.updateApplication({
+          id: editingApplicationId,
+          customerName: formData.customerName.trim(),
+          phone: formData.phone.trim(),
+          emiratesId: modalTab === 'company' ? companyName : formData.emiratesId.trim(),
+          customerType: modalTab === 'company' ? 'Company' : 'Individual',
+          serviceId: parseInt(formData.serviceId, 10),
+          serviceCharge: charge,
+          customerPayment: formData.customerPayment,
+          govtFee: govt,
+          govtPayment: formData.govtPayment,
+          typingFee: Math.max(0, charge - govt),
+          status: formData.status || 'Pending'
+        })
+      } else {
+        result = await window.api.createApplication({
+          customerName: formData.customerName.trim(),
+          phone: formData.phone.trim(),
+          emiratesId: modalTab === 'company' ? companyName : formData.emiratesId.trim(),
+          customerType: modalTab === 'company' ? 'Company' : 'Individual',
+          serviceId: parseInt(formData.serviceId, 10),
+          serviceCharge: charge,
+          customerPayment: formData.customerPayment,
+          govtFee: govt,
+          govtPayment: formData.govtPayment,
+          typingFee: Math.max(0, charge - govt),
+          status: 'Pending',
+          createdBy: currentUser?.username || ''
+        })
+      }
       if (result.success) {
         setShowModal(false)
         setFormData(emptyForm)
         setFormError(null)
+        setEditingApplicationId(null)
         await loadApplications()
       } else { setFormError(result.error) }
     } catch (err) { setFormError(err.message) }
     finally { setSaving(false) }
-  }, [formData, modalTab, companies, loadApplications])
+  }, [formData, modalTab, companies, loadApplications, editingApplicationId, currentUser])
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false)
@@ -222,7 +475,57 @@ function App() {
     setFormError(null)
     setShowAddCompany(false)
     setNewCompanyName('')
+    setEditingApplicationId(null)
   }, [])
+
+  const handleEditApplicationClick = useCallback((appData) => {
+    loadServices()
+    loadPaymentCards()
+    loadCompanies()
+
+    setEditingApplicationId(appData.id)
+
+    const isCompany = appData.customerType === 'Company'
+    setModalTab(isCompany ? 'company' : 'individual')
+
+    let companyId = ''
+    if (isCompany) {
+      const comp = companiesRef.current.find(c => c.name === appData.emiratesId)
+      if (comp) companyId = String(comp.id)
+    }
+
+    setFormData({
+      customerName: appData.customerName,
+      phone: appData.phone || '',
+      emiratesId: isCompany ? '' : appData.emiratesId || '',
+      companyId: companyId,
+      serviceId: String(appData.serviceId),
+      serviceCharge: String(appData.serviceCharge),
+      customerPayment: appData.customerPayment || 'Cash',
+      govtFee: String(appData.govtFee),
+      govtPayment: appData.govtPayment || 'Cash',
+      status: appData.status || 'Pending'
+    })
+
+    setShowModal(true)
+  }, [loadServices, loadPaymentCards, loadCompanies])
+
+  const handleDeleteApplicationClick = useCallback(async (appData) => {
+    if (!window.confirm(`Are you sure you want to delete the application for "${appData.customerName}"?`)) return
+    try {
+      setLoading(true)
+      const res = await window.api.deleteApplication({ id: appData.id })
+      if (res.success) {
+        await loadApplications()
+      } else {
+        setError(res.error)
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [loadApplications])
 
   const handleOpenModal = useCallback(async () => {
     setShowModal(true)
@@ -262,18 +565,32 @@ function App() {
 
   // ── Grid columns ──
   const columnDefs = useMemo(() => [
-    { headerName: 'ID', field: 'id', width: 70, sortable: true, filter: true },
-    { headerName: 'Customer', field: 'customerName', flex: 1.3, minWidth: 150, sortable: true, filter: true },
-    { headerName: 'Type', field: 'customerType', width: 110, sortable: true, filter: true, cellRenderer: CustomerTypeRenderer },
-    { headerName: 'Company / EID', field: 'emiratesId', flex: 1, minWidth: 130, sortable: true, filter: true },
-    { headerName: 'Service', flex: 1, minWidth: 140, sortable: true, filter: true, valueGetter: (p) => p.data?.service?.name || '—' },
-    { headerName: 'Charge', field: 'serviceCharge', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2) },
-    { headerName: 'Govt Fee', field: 'govtFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2) },
-    { headerName: 'Profit', field: 'typingFee', width: 90, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), cellStyle: { color: '#34d399' } },
-    { headerName: 'Cust. Paid', field: 'customerPayment', width: 110, sortable: true, filter: true },
-    { headerName: 'Date', field: 'createdAt', width: 120, sortable: true, cellRenderer: DateRenderer },
-    { headerName: 'Status', field: 'status', width: 120, sortable: true, filter: true, cellRenderer: StatusRenderer },
-  ], [])
+    { headerName: 'ID', field: 'id', width: 70, sortable: true, filter: true, hide: !visibleCols.id },
+    { headerName: 'Customer', field: 'customerName', flex: 1.3, minWidth: 150, sortable: true, filter: true, hide: !visibleCols.customerName },
+    { headerName: 'Type', field: 'customerType', width: 110, sortable: true, filter: true, cellRenderer: CustomerTypeRenderer, hide: !visibleCols.customerType },
+    { headerName: 'Company / EID', field: 'emiratesId', flex: 1, minWidth: 130, sortable: true, filter: true, hide: !visibleCols.emiratesId },
+    { headerName: 'Service', field: 'service', flex: 1, minWidth: 140, sortable: true, filter: true, valueGetter: (p) => p.data?.service?.name || '—', hide: !visibleCols.service },
+    { headerName: 'Received', field: 'serviceCharge', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.serviceCharge },
+    { headerName: 'Paid', field: 'govtFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.govtFee },
+    { headerName: 'Profit', field: 'typingFee', width: 90, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), cellStyle: { color: '#34d399' }, hide: !visibleCols.typingFee },
+    { headerName: 'Paid By', field: 'customerPayment', width: 110, sortable: true, filter: true, hide: !visibleCols.customerPayment },
+    { headerName: 'Staff', field: 'createdBy', width: 100, sortable: true, filter: true, hide: !visibleCols.createdBy },
+    { headerName: 'Date', field: 'createdAt', width: 120, sortable: true, cellRenderer: DateRenderer, hide: !visibleCols.createdAt },
+    { headerName: 'Status', field: 'status', width: 120, sortable: true, filter: true, cellRenderer: StatusRenderer, hide: !visibleCols.status },
+    {
+      headerName: 'Actions',
+      field: 'actions',
+      width: 140,
+      sortable: false,
+      filter: false,
+      cellRenderer: ActionsRenderer,
+      cellRendererParams: {
+        onEdit: handleEditApplicationClick,
+        onDelete: handleDeleteApplicationClick
+      },
+      hide: !visibleCols.actions
+    }
+  ], [handleEditApplicationClick, handleDeleteApplicationClick, visibleCols])
 
   const defaultColDef = useMemo(() => ({ resizable: true }), [])
 
@@ -289,21 +606,39 @@ function App() {
   // ── Navigation ──
   const handleNav = useCallback((page) => {
     setCurrentPage(page)
-    if (page === 'applications') { loadApplications(); loadServices() }
-  }, [loadApplications, loadServices])
+    if (page === 'applications') { loadApplications(); loadServices(); loadCompanies() }
+  }, [loadApplications, loadServices, loadCompanies])
 
-  const navItems = [
-    { icon: '📋', label: 'Applications', page: 'applications' },
-    { icon: '📊', label: 'Daily Report', page: 'daily-report' },
-    { icon: '💳', label: 'Card Accounts', page: 'card-accounts' },
-    { icon: '⚙️', label: 'Admin Settings', page: 'settings' },
-  ]
+  const navItems = useMemo(() => {
+    const items = [
+      { icon: <ApplicationIcon size={18} />, label: 'Applications', page: 'applications' },
+      { icon: <CompanyIcon size={18} />, label: 'Company', page: 'company' },
+      { icon: <IndividualIcon size={18} />, label: 'Individual', page: 'individual' },
+      { icon: <ReportIcon size={18} />, label: 'Daily Report', page: 'daily-report' },
+      { icon: <ReportIcon size={18} />, label: 'Monthly Report', page: 'monthly-report' },
+      { icon: <CardIcon size={18} />, label: 'Card Accounts', page: 'card-accounts' },
+      { icon: <BillIcon size={18} />, label: 'Expenses / Accounts', page: 'expenses' }
+    ]
+    if (currentUser?.role === 'Admin') {
+      items.push({ icon: <SettingsIcon size={18} />, label: 'Admin Settings', page: 'settings' })
+    }
+    return items
+  }, [currentUser])
 
   // ── Render content ──
   const renderContent = () => {
-    if (currentPage === 'settings') return <AdminSettings shopConfig={shopConfig} onShopConfigSaved={(cfg) => setShopConfig(cfg)} />
+    if (currentPage === 'settings') {
+      if (currentUser?.role !== 'Admin') {
+        return <div className="p-4"><Alert variant="danger">Access Denied: Admin permissions required.</Alert></div>
+      }
+      return <AdminSettings shopConfig={shopConfig} onShopConfigSaved={(cfg) => setShopConfig(cfg)} currentUser={currentUser} />
+    }
     if (currentPage === 'daily-report') return <DailyReport />
+    if (currentPage === 'monthly-report') return <MonthlyReport />
     if (currentPage === 'card-accounts') return <CardAccounts />
+    if (currentPage === 'expenses') return <ExpensesManagement />
+    if (currentPage === 'company') return <CompanyManagement />
+    if (currentPage === 'individual') return <IndividualManagement />
 
     return (
       <>
@@ -313,29 +648,40 @@ function App() {
             <p>Manage and track all customer service applications</p>
           </div>
           <div className="page-header-actions">
-            <button className="btn-outline-subtle" id="btn-export">📥 Export</button>
-            <button className="btn-primary-glow" id="btn-new-application" onClick={handleOpenModal}>➕ New Application</button>
+            <button className="btn-outline-subtle" id="btn-export" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ExportIcon size={14} /> Export
+            </button>
+            <button className="btn-primary-glow" id="btn-new-application" onClick={handleOpenModal} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <PlusIcon size={14} /> New
+            </button>
           </div>
         </div>
-
         <div className="stat-cards">
           <div className="stat-card">
-            <div className="stat-card-header"><div className="stat-card-icon">📋</div></div>
+            <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--accent-primary)' }}>
+              <ApplicationIcon size={24} />
+            </div>
             <div className="stat-card-value">{stats.total}</div>
             <div className="stat-card-label">Total Applications</div>
           </div>
           <div className="stat-card">
-            <div className="stat-card-header"><div className="stat-card-icon">💰</div></div>
+            <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--success)' }}>
+              <SalesIcon size={24} />
+            </div>
             <div className="stat-card-value">{stats.totalCharge.toFixed(0)}</div>
             <div className="stat-card-label">Total Sales (AED)</div>
           </div>
           <div className="stat-card">
-            <div className="stat-card-header"><div className="stat-card-icon">✅</div></div>
+            <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--info)' }}>
+              <SaveIcon size={24} />
+            </div>
             <div className="stat-card-value">{stats.totalProfit.toFixed(0)}</div>
             <div className="stat-card-label">Total Profit (AED)</div>
           </div>
           <div className="stat-card">
-            <div className="stat-card-header"><div className="stat-card-icon">⏳</div></div>
+            <div className="stat-card-icon" style={{ display: 'inline-flex', color: 'var(--warning)' }}>
+              <PendingIcon size={24} />
+            </div>
             <div className="stat-card-value">{stats.pending}</div>
             <div className="stat-card-label">Pending</div>
           </div>
@@ -351,7 +697,32 @@ function App() {
             </div>
             <div className="grid-toolbar-right">
               <input className="grid-filter-input" type="text" placeholder="Filter records..." value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)} />
-              <button className="btn-outline-subtle" onClick={loadApplications}>🔄 Refresh</button>
+
+              <Dropdown align="end" className="d-inline">
+                <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown">
+                  Columns
+                </Dropdown.Toggle>
+                <Dropdown.Menu className={`${theme === 'dark' ? 'dropdown-menu-dark' : 'dropdown-menu-light shadow'} p-3`} style={{ minWidth: 220 }}>
+                  <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                  <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                    {Object.keys(visibleCols).map((col) => (
+                      <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                        <input
+                          type="checkbox"
+                          checked={visibleCols[col]}
+                          onChange={() => handleToggleColumn(col)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        {getFriendlyColName(col)}
+                      </label>
+                    ))}
+                  </div>
+                </Dropdown.Menu>
+              </Dropdown>
+
+              <button className="btn-outline-subtle" onClick={loadApplications} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <RefreshIcon size={14} /> Refresh
+              </button>
             </div>
           </div>
           <div style={{ height: 480, width: '100%' }}>
@@ -363,7 +734,7 @@ function App() {
             ) : (
               <AgGridReact
                 ref={gridRef}
-                theme={darkTheme}
+                theme={theme === 'light' ? lightGridTheme : darkGridTheme}
                 modules={[AllCommunityModule]}
                 rowData={applications}
                 columnDefs={columnDefs}
@@ -387,42 +758,142 @@ function App() {
       <div className="modal-section-title">💰 Payment Details</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <Form.Group>
-          <Form.Label className="modal-field-label">Service Charge (AED)</Form.Label>
+          <Form.Label className="modal-field-label">Received (AED)</Form.Label>
           <Form.Control type="number" step="0.01" min="0" name="serviceCharge" placeholder="0.00" value={formData.serviceCharge} onChange={handleInputChange} />
         </Form.Group>
         <Form.Group>
-          <Form.Label className="modal-field-label">Govt Fee (AED)</Form.Label>
-          <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={formData.govtFee} onChange={handleInputChange} />
+          <Form.Label className="modal-field-label">Paid (AED)</Form.Label>
+          <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={formData.govtFee} onChange={handleInputChange} disabled={formData.govtPayment === 'N/A'} />
         </Form.Group>
         <Form.Group>
-          <Form.Label className="modal-field-label">Typing Fee (Profit)</Form.Label>
+          <Form.Label className="modal-field-label">Typing Fee</Form.Label>
           <Form.Control type="text" readOnly value={`AED ${typingFee.toFixed(2)}`} style={{ color: 'var(--success)', fontWeight: 600 }} />
         </Form.Group>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
         <Form.Group>
-          <Form.Label className="modal-field-label">Customer Paid By</Form.Label>
+          <Form.Label className="modal-field-label">Received</Form.Label>
           <Form.Select name="customerPayment" value={formData.customerPayment} onChange={handleInputChange}>
             <option value="Cash">💵 Cash</option>
-            {paymentCards.map((c) => (<option key={c.id} value={c.bankName}>💳 {c.bankName}</option>))}
+            <option value="Card">💳 Card</option>
+            <option value="Credit">💳 Credit</option>
           </Form.Select>
         </Form.Group>
         <Form.Group>
-          <Form.Label className="modal-field-label">Govt Paid By</Form.Label>
+          <Form.Label className="modal-field-label">Paid To</Form.Label>
           <Form.Select name="govtPayment" value={formData.govtPayment} onChange={handleInputChange}>
             <option value="Cash">💵 Cash</option>
+            <option value="N/A">🚫 N/A (None)</option>
             {paymentCards.map((c) => (<option key={c.id} value={c.bankName}>💳 {c.bankName}</option>))}
           </Form.Select>
         </Form.Group>
       </div>
+      {editingApplicationId && (
+        <div style={{ marginTop: 12 }}>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Status</Form.Label>
+            <Form.Select name="status" value={formData.status} onChange={handleInputChange}>
+              <option value="Pending">⏳ Pending</option>
+              <option value="Completed">✅ Completed</option>
+              <option value="Rejected">❌ Rejected</option>
+              <option value="In Progress">🔄 In Progress</option>
+            </Form.Select>
+          </Form.Group>
+        </div>
+      )}
     </div>
   )
+
+  if (checkingDb) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d0f17', color: '#fff' }}>
+        <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem', marginBottom: 20 }} />
+        <h5>Connecting to Database...</h5>
+      </div>
+    )
+  }
+
+  if (showDbConnectionSetup) {
+    const handleDbSetupSubmit = async (e) => {
+      e.preventDefault()
+      setDbSetupSaving(true)
+      setDbSetupError(null)
+      const testUrl = buildDatabaseUrl(dbConfig.user, dbConfig.password, dbConfig.host, dbConfig.port, dbConfig.name)
+      try {
+        const testRes = await window.api.testDbConnection({ databaseUrl: testUrl })
+        if (!testRes.success) {
+          setDbSetupError(`Connection failed: ${testRes.error}`)
+          setDbSetupSaving(false)
+          return
+        }
+
+        const saveRes = await window.api.saveDbConfig({ databaseUrl: testUrl })
+        if (saveRes.success) {
+          alert('Database connection configured! The application will restart to apply the settings.')
+          window.location.reload()
+        } else {
+          setDbSetupError(saveRes.error)
+        }
+      } catch (err) {
+        setDbSetupError(err.message)
+      } finally {
+        setDbSetupSaving(false)
+      }
+    }
+
+    const handleDbConfigChange = (e) => {
+      const { name, value } = e.target
+      setDbConfig(prev => ({ ...prev, [name]: value }))
+    }
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0d0f17', padding: 20 }}>
+        <div className="login-box" style={{ maxWidth: 450, padding: 30, background: '#1c1f2e', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+          <div className="text-center mb-4">
+            <span style={{ fontSize: '3rem' }}>🔌</span>
+            <h3 className="mt-2 text-white">Database Setup</h3>
+            <p className="text-muted small">Could not connect to the database. Please configure your server settings.</p>
+          </div>
+          {dbSetupError && <Alert variant="danger" style={{ fontSize: '0.85rem' }}>{dbSetupError}</Alert>}
+          <Form onSubmit={handleDbSetupSubmit}>
+            <Form.Group className="mb-3">
+              <Form.Label className="small fw-semibold text-light-gray">Database Server Host IP</Form.Label>
+              <Form.Control type="text" name="host" value={dbConfig.host} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="small fw-semibold text-light-gray">Port</Form.Label>
+              <Form.Control type="text" name="port" value={dbConfig.port} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="small fw-semibold text-light-gray">Database Name</Form.Label>
+              <Form.Control type="text" name="name" value={dbConfig.name} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label className="small fw-semibold text-light-gray">Username</Form.Label>
+              <Form.Control type="text" name="user" value={dbConfig.user} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
+            </Form.Group>
+            <Form.Group className="mb-4">
+              <Form.Label className="small fw-semibold text-light-gray">Password</Form.Label>
+              <Form.Control type="password" name="password" value={dbConfig.password} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
+            </Form.Group>
+            <Button type="submit" className="w-100 py-2 btn-login btn-gradient" disabled={dbSetupSaving} style={{ border: 'none' }}>
+              {dbSetupSaving ? <Spinner animation="border" size="sm" className="me-2" /> : '🔌 Connect & Save'}
+            </Button>
+          </Form>
+        </div>
+      </div>
+    )
+  }
+
+  if (!currentUser) {
+    return <LoginScreen shopName={shopName} onLoginSuccess={handleLoginSuccess} />
+  }
 
   return (
     <>
       <nav className="app-navbar">
-        <a className="navbar-brand" href="#" onClick={(e) => { e.preventDefault(); handleNav('applications') }}>
-          <span className="brand-icon">⌨️</span>
+        <a className="navbar-brand" >
+          <img src={logo} alt="Logo" style={{ width: 28, height: 28, marginRight: 8, objectFit: 'contain' }} />
           {shopName}
         </a>
         <div className="navbar-actions">
@@ -430,8 +901,39 @@ function App() {
             <span className="search-icon">🔍</span>
             <input id="global-search" type="text" placeholder="Search anything..." />
           </div>
-          <button className="nav-icon-btn" id="btn-notifications" title="Notifications">🔔<span className="badge-dot" /></button>
-          <div className="user-avatar" title="Admin User">AU</div>
+
+          <Dropdown align="end" className="d-inline">
+            <Dropdown.Toggle as="button" className="nav-icon-btn" id="theme-dropdown" title="Change Theme">
+              {theme === 'light' ? <SunIcon size={18} /> : <MoonIcon size={18} />}
+            </Dropdown.Toggle>
+            <Dropdown.Menu className={theme === 'dark' ? 'dropdown-menu-dark' : 'dropdown-menu-light shadow'}>
+              <Dropdown.Item onClick={() => setTheme('light')}>
+                <SunIcon size={16} /> Light Theme
+              </Dropdown.Item>
+              <Dropdown.Item onClick={() => setTheme('dark')}>
+                <MoonIcon size={16} /> Dark Theme
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown>
+
+          <button className="nav-icon-btn" id="btn-notifications" title="Notifications">
+            <BellIcon size={18} />
+            <span className="badge-dot" />
+          </button>
+          {currentUser && (
+            <div className="user-profile-nav">
+              <div className="user-avatar" title={`${currentUser.fullName} (${currentUser.role})`}>
+                {currentUser.fullName ? currentUser.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'US'}
+              </div>
+              <div className="user-info-dropdown">
+                <span className="user-nav-name">{currentUser.fullName}</span>
+                <span className="user-nav-role">{currentUser.role}</span>
+              </div>
+              <button className="btn-logout" onClick={handleLogout} title="Log Out" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <LogoutIcon size={14} /> Logout
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -466,17 +968,17 @@ function App() {
       {/* ─── New Application Modal (Tabbed) ─── */}
       <Modal show={showModal} onHide={handleCloseModal} centered size="lg" contentClassName="modal-dark">
         <Modal.Header closeButton closeVariant="white">
-          <Modal.Title><span style={{ marginRight: 8 }}>📝</span>New Application</Modal.Title>
+          <Modal.Title>{editingApplicationId ? 'Edit Application' : 'New Application'}</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleSubmit}>
           <Modal.Body>
             {/* Tab Switcher */}
             <div className="modal-tabs">
               <button type="button" className={`modal-tab ${modalTab === 'individual' ? 'active' : ''}`} onClick={() => handleTabSwitch('individual')}>
-                👤 Individual
+                Individual
               </button>
               <button type="button" className={`modal-tab ${modalTab === 'company' ? 'active' : ''}`} onClick={() => handleTabSwitch('company')}>
-                🏢 Company
+                Company
               </button>
             </div>
 
@@ -520,9 +1022,9 @@ function App() {
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </Form.Select>
-                    <button type="button" className="btn-outline-subtle" style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+                    <button type="button" className="btn-outline-subtle d-flex align-items-center justify-content-center" style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
                       onClick={() => setShowAddCompany(!showAddCompany)}>
-                      {showAddCompany ? '✕' : '+ Add'}
+                      {showAddCompany ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
                     </button>
                   </div>
                 </Form.Group>
@@ -536,9 +1038,9 @@ function App() {
                       onChange={(e) => setNewCompanyName(e.target.value)}
                       style={{ flex: 1 }}
                     />
-                    <button type="button" className="btn-primary-glow" style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap' }}
+                    <button type="button" className="btn-primary-glow" style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
                       disabled={addingCompany || !newCompanyName.trim()} onClick={handleAddCompany}>
-                      {addingCompany ? <Spinner animation="border" size="sm" /> : '✓ Save'}
+                      {addingCompany ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
                     </button>
                   </div>
                 )}
@@ -569,8 +1071,8 @@ function App() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="outline-secondary" onClick={handleCloseModal} disabled={saving}>Cancel</Button>
-            <Button type="submit" className="btn-primary-glow" disabled={saving || services.length === 0} style={{ border: 'none' }}>
-              {saving ? <><Spinner animation="border" size="sm" className="me-2" />Saving...</> : '💾 Save Application'}
+            <Button type="submit" className="btn-primary-glow" disabled={saving || services.length === 0} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {saving ? <><Spinner animation="border" size="sm" className="me-2" />Saving...</> : <><SaveIcon size={14} /> Save</>}
             </Button>
           </Modal.Footer>
         </Form>
@@ -578,7 +1080,7 @@ function App() {
 
       {/* ─── First-Time Setup Modal ─── */}
       <Modal show={showSetup} centered backdrop="static" keyboard={false} contentClassName="modal-dark">
-        <Modal.Header><Modal.Title><span style={{ marginRight: 8 }}>🏢</span>Welcome — Shop Setup</Modal.Title></Modal.Header>
+        <Modal.Header><Modal.Title>Welcome — Shop Setup</Modal.Title></Modal.Header>
         <Form onSubmit={handleSetupSubmit}>
           <Modal.Body>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Set up your typing center. This is a one-time setup.</p>
@@ -591,7 +1093,7 @@ function App() {
           </Modal.Body>
           <Modal.Footer>
             <Button type="submit" className="btn-primary-glow" disabled={setupSaving || !setupName.trim()} style={{ border: 'none' }}>
-              {setupSaving ? <><Spinner animation="border" size="sm" className="me-2" />Saving...</> : '🚀 Start Using'}
+              {setupSaving ? <><Spinner animation="border" size="sm" className="me-2" />Saving...</> : 'Start Using'}
             </Button>
           </Modal.Footer>
         </Form>

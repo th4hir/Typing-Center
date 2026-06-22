@@ -10,11 +10,29 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
+    build: {
+      rollupOptions: {
+        output: {
+          format: 'es'
+        }
+      }
+    },
+    html: {
+      cspNonce: undefined
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [react()]
+    plugins: [
+      react(),
+      {
+        name: 'remove-crossorigin',
+        transformIndexHtml(html) {
+          return html.replace(/ crossorigin/g, '')
+        }
+      }
+    ]
   }
 })
