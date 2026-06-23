@@ -44,10 +44,14 @@ function DailyReport() {
     const totalGovt = applications.reduce((s, a) => s + a.govtFee, 0)
     const totalTyping = applications.reduce((s, a) => s + a.typingFee, 0)
     const cashIn = applications.filter(a => a.customerPayment === 'Cash').reduce((s, a) => s + a.serviceCharge, 0)
-    const cardIn = totalCharge - cashIn
+    const cardIn = applications.filter(a => a.customerPayment === 'Card').reduce((s, a) => s + a.serviceCharge, 0)
+    const chequeIn = applications.filter(a => a.customerPayment === 'Cheque').reduce((s, a) => s + a.serviceCharge, 0)
+    const transferIn = applications.filter(a => a.customerPayment === 'Account Transfer').reduce((s, a) => s + a.serviceCharge, 0)
+    const creditIn = applications.filter(a => a.customerPayment === 'Credit').reduce((s, a) => s + a.serviceCharge, 0)
+    const advanceIn = applications.filter(a => a.customerPayment === 'Advance').reduce((s, a) => s + a.serviceCharge, 0)
     const cashOut = applications.filter(a => a.govtPayment === 'Cash').reduce((s, a) => s + a.govtFee, 0)
     const cardOut = applications.filter(a => a.govtPayment !== 'Cash' && a.govtPayment !== 'N/A').reduce((s, a) => s + a.govtFee, 0)
-    return { totalCharge, totalGovt, totalTyping, cashIn, cardIn, cashOut, cardOut, count: applications.length }
+    return { totalCharge, totalGovt, totalTyping, cashIn, cardIn, chequeIn, transferIn, creditIn, advanceIn, cashOut, cardOut, count: applications.length }
   }, [applications])
 
   // Formatted date for display
@@ -120,6 +124,22 @@ function DailyReport() {
           <div className="report-break-row">
             <span>Card</span>
             <span className="report-break-val">AED {totals.cardIn.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Cheque</span>
+            <span className="report-break-val">AED {totals.chequeIn.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Account Transfer</span>
+            <span className="report-break-val">AED {totals.transferIn.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Credit</span>
+            <span className="report-break-val">AED {totals.creditIn.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Advance</span>
+            <span className="report-break-val">AED {totals.advanceIn.toFixed(2)}</span>
           </div>
           <div className="report-break-row report-break-total">
             <span>Total</span>

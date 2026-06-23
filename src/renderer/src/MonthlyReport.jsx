@@ -69,7 +69,11 @@ function MonthlyReport() {
 
     // Application Payments In (Sales) Breakdown
     const cashSales = apps.filter(a => a.customerPayment === 'Cash').reduce((s, a) => s + a.serviceCharge, 0)
-    const cardSales = totalSales - cashSales
+    const cardSales = apps.filter(a => a.customerPayment === 'Card').reduce((s, a) => s + a.serviceCharge, 0)
+    const chequeSales = apps.filter(a => a.customerPayment === 'Cheque').reduce((s, a) => s + a.serviceCharge, 0)
+    const transferSales = apps.filter(a => a.customerPayment === 'Account Transfer').reduce((s, a) => s + a.serviceCharge, 0)
+    const creditSales = apps.filter(a => a.customerPayment === 'Credit').reduce((s, a) => s + a.serviceCharge, 0)
+    const advanceSales = apps.filter(a => a.customerPayment === 'Advance').reduce((s, a) => s + a.serviceCharge, 0)
 
     // Application Payments Out (Govt Fees) Breakdown
     const cashGovt = apps.filter(a => a.govtPayment === 'Cash').reduce((s, a) => s + a.govtFee, 0)
@@ -87,6 +91,10 @@ function MonthlyReport() {
       netProfit,
       cashSales,
       cardSales,
+      chequeSales,
+      transferSales,
+      creditSales,
+      advanceSales,
       cashGovt,
       cardGovt,
       cashExpenses,
@@ -184,6 +192,22 @@ function MonthlyReport() {
           <div className="report-break-row">
             <span>Card (Applications)</span>
             <span className="report-break-val">AED {totals.cardSales.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Cheque (Applications)</span>
+            <span className="report-break-val">AED {totals.chequeSales.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Account Transfer (Applications)</span>
+            <span className="report-break-val">AED {totals.transferSales.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Credit (Applications)</span>
+            <span className="report-break-val">AED {totals.creditSales.toFixed(2)}</span>
+          </div>
+          <div className="report-break-row">
+            <span>Advance (Applications)</span>
+            <span className="report-break-val">AED {totals.advanceSales.toFixed(2)}</span>
           </div>
           <div className="report-break-row report-break-total">
             <span>Total Gross Sales</span>

@@ -1194,102 +1194,122 @@ textarea::placeholder,
 .login-container {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end; /* Align the card to the right side */
   min-height: 100vh;
-  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
-  color: #ffffff;
-  padding: 20px;
+  padding: 40px 10%; /* Beautiful padding on the right */
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-color: #f1f5f9;
 }
+
+@media (max-width: 992px) {
+  .login-container {
+    justify-content: center;
+    padding: 20px;
+  }
+}
+
 .login-box {
   width: 100%;
-  max-width: 400px;
+  max-width: 410px;
+  z-index: 10;
 }
-.login-logo-container {
-  width: 66px;
-  height: 66px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 20px;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
-}
-.login-logo-icon {
-  font-size: 1.8rem;
-}
+
 .login-shop-name {
   font-family: 'Outfit', sans-serif;
-  font-size: 2rem;
+  font-size: 1.8rem;
   font-weight: 800;
-  margin-bottom: 6px;
-  letter-spacing: -0.5px;
-  color: #ffffff;
+  margin-bottom: 4px;
+  color: #5c061e;
 }
+
 .login-subtitle {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.5);
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  font-weight: 700;
+  color: #64748b;
+  font-weight: 400;
+  margin-bottom: 0px;
 }
+
 .login-card {
-  background: rgba(255, 255, 255, 0.05) !important;
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
   border-radius: var(--radius-lg) !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.06) !important;
+  padding: 8px;
 }
+
 .input-group-custom {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
+
 .input-icon {
   position: absolute;
   left: 14px;
-  font-size: 1.1rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: #94a3b8;
   pointer-events: none;
+  transition: color 0.2s ease;
+  display: flex;
+  align-items: center;
 }
+
+.input-group-custom:focus-within .input-icon {
+  color: #5c061e;
+}
+
 .login-input {
-  background: rgba(15, 23, 42, 0.6) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: #f8fafc !important;
+  border: 1px solid #cbd5e1 !important;
   border-radius: var(--radius-md) !important;
-  color: #ffffff !important;
-  padding: 11px 12px 11px 44px !important;
-  font-size: 0.9rem !important;
-  transition: all 0.25s ease-in-out !important;
+  color: #0f172a !important;
+  padding: 12px 14px 12px 42px !important;
+  font-size: 0.95rem !important;
+  width: 100%;
+  transition: all 0.2s ease !important;
 }
+
 .login-input:focus {
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25) !important;
-  background: rgba(15, 23, 42, 0.8) !important;
+  border-color: #5c061e !important;
+  box-shadow: 0 0 0 3px rgba(92, 6, 30, 0.15) !important;
+  background: #ffffff !important;
 }
+
 .btn-login {
-  background: #2563eb !important;
+  background: #5c061e !important;
   border: none !important;
   border-radius: var(--radius-md) !important;
   font-weight: 700 !important;
   letter-spacing: 0.5px;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;
+  box-shadow: 0 4px 14px rgba(92, 6, 30, 0.2) !important;
+  transition: all 0.2s ease !important;
 }
+
 .btn-login:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35) !important;
-  background: #1d4ed8 !important;
+  background: #470417 !important;
+  box-shadow: 0 6px 20px rgba(92, 6, 30, 0.35) !important;
 }
+
+.btn-login:active {
+  transform: translateY(1px);
+}
+
 .login-footer p {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.4);
-}
-.small-alert {
   font-size: 0.8rem;
-  background: rgba(239, 68, 68, 0.15) !important;
-  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #64748b;
+  margin-top: 16px;
+}
+
+.small-alert {
+  font-size: 0.85rem;
+  background: rgba(239, 68, 68, 0.1) !important;
+  border: 1px solid rgba(239, 68, 68, 0.25) !important;
   color: #fca5a5 !important;
+  border-radius: var(--radius-md) !important;
 }
 
 /* ===== Navbar User Profile Styles ===== */

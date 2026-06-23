@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { Card, Form, Button, Alert, Spinner } from 'react-bootstrap'
-import logo from '../../logo.png'
+import fcLogo from '../../FC LOGO NEW.png'
+import wallpaper from '../../Wallpaper.png'
+import { MailIcon, KeyIcon, EyeIcon, EyeOffIcon } from './Icons'
 
 export default function LoginScreen({ shopName, onLoginSuccess }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -33,18 +36,16 @@ export default function LoginScreen({ shopName, onLoginSuccess }) {
   }
 
   return (
-    <div className="login-container">
+    <div className="login-container" style={{ backgroundImage: `url(${wallpaper})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundSize: 'cover' }}>
       <div className="login-box">
-        <div className="text-center mb-4">
-          <div className="login-logo-container" style={{ width: 80, height: 80, padding: 10, background: 'rgba(255, 255, 255, 0.04)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 0 20px rgba(108, 99, 255, 0.1)', margin: '0 auto 16px' }}>
-            <img src={logo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-          </div>
-          <h2 className="login-shop-name">{shopName || 'Typing Center'}</h2>
-          <p className="login-subtitle">Staff & Admin Login</p>
-        </div>
-
         <Card className="login-card shadow-lg">
           <Card.Body className="p-4">
+            <div className="text-center mb-4">
+              <img src={fcLogo} alt="Logo" style={{ width: 66, height: 66, objectFit: 'contain', display: 'block', margin: '0 auto 16px' }} />
+              <h2 className="login-shop-name">Welcome back</h2>
+              <p className="login-subtitle"></p>
+            </div>
+
             {error && (
               <Alert variant="danger" className="text-center py-2 mb-3 small-alert">
                 {error}
@@ -53,12 +54,12 @@ export default function LoginScreen({ shopName, onLoginSuccess }) {
 
             <Form onSubmit={handleSubmit}>
               <Form.Group className="mb-3" controlId="loginUsername">
-                <Form.Label className="small fw-semibold text-light-gray">Username</Form.Label>
+                <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Email Address</Form.Label>
                 <div className="input-group-custom">
-                  <span className="input-icon">👤</span>
+                  <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center' }}><MailIcon size={16} /></span>
                   <Form.Control
                     type="text"
-                    placeholder="Enter your username"
+                    placeholder="Username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
@@ -70,25 +71,45 @@ export default function LoginScreen({ shopName, onLoginSuccess }) {
               </Form.Group>
 
               <Form.Group className="mb-4" controlId="loginPassword">
-                <Form.Label className="small fw-semibold text-light-gray">Password</Form.Label>
+                <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Password</Form.Label>
                 <div className="input-group-custom">
-                  <span className="input-icon">🔑</span>
+                  <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center' }}><KeyIcon size={16} /></span>
                   <Form.Control
-                    type="password"
-                    placeholder="Enter your password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={loading}
                     className="login-input"
+                    style={{ paddingRight: 40 }}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: 12,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      height: '100%',
+                      zIndex: 5
+                    }}
+                  >
+                    {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+                  </button>
                 </div>
               </Form.Group>
 
               <Button
                 type="submit"
                 variant="primary"
-                className="w-100 py-2 btn-login btn-gradient"
+                className="w-100 py-2 btn-login"
                 disabled={loading}
               >
                 {loading ? (

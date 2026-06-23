@@ -39,9 +39,10 @@ model PaymentCard {
 
 // Companies that use the typing center
 model Company {
-  id      Int             @id @default(autoincrement())
-  name    String          @unique
-  records CompanyRecord[]
+  id             Int             @id @default(autoincrement())
+  name           String          @unique
+  advanceBalance Float           @default(0)
+  records        CompanyRecord[]
 }
 
 model CompanyRecord {
@@ -61,10 +62,11 @@ model CompanyRecord {
 
 // Individuals who use the typing center for personal services (Visa, Emirates ID, Insurance, etc.)
 model Individual {
-  id      Int                @id @default(autoincrement())
-  name    String             @unique
-  phone   String             @default("")
-  records IndividualRecord[]
+  id             Int                @id @default(autoincrement())
+  name           String             @unique
+  phone          String             @default("")
+  advanceBalance Float                @default(0)
+  records        IndividualRecord[]
 }
 
 model IndividualRecord {
@@ -103,6 +105,7 @@ model Application {
   // Money OUT — what we pay government/entity
   govtFee         Float    @default(0)
   govtPayment     String   @default("Cash")
+  govtEntity      String   @default("")
 
   // Our fee (serviceCharge - govtFee)
   typingFee       Float    @default(0)

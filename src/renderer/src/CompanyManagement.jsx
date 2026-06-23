@@ -11,13 +11,26 @@ import {
   VisaIcon,
   FolderIcon,
   BackIcon,
-  SaveIcon
+  SaveIcon,
+  SalesIcon,
+  ApplicationIcon,
+  CardIcon
 } from './Icons'
 
-export default function CompanyManagement() {
+export default function CompanyManagement({ initialCompanyId, onClearInitialId }) {
   // Navigation & Company Selection
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
+
+  // Handle initial selected company from Dashboard link
+  useEffect(() => {
+    if (initialCompanyId && companies.length > 0) {
+      const found = companies.find(c => c.id === parseInt(initialCompanyId, 10))
+      if (found) {
+        setSelectedCompany(found)
+      }
+    }
+  }, [initialCompanyId, companies])
 
   // Lists & Loaders
   const [loadingCompanies, setLoadingCompanies] = useState(true)
@@ -31,15 +44,40 @@ export default function CompanyManagement() {
   const [selectedCategory, setSelectedCategory] = useState('Trade License') // Default tab
 
   // Dynamic Categories
-  const [categories, setCategories] = useState(['Trade License', 'Health Insurance', 'Visa', 'Other Documents'])
+  const [categories, setCategories] = useState([
+    'Trade License',
+    'Employee Category/Visa',
+    'Employee Category/Health Insurance',
+    'Employee Category/Labour card',
+    'Other Documents'
+  ])
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [newCategoryInput, setNewCategoryInput] = useState('')
+
+  // Folder Setup
+  const [showFolderModal, setShowFolderModal] = useState(false)
+  const [targetCategoryForFolder, setTargetCategoryForFolder] = useState('')
+  const [newFolderInput, setNewFolderInput] = useState('')
+
+  // Applications Setup
+  const [applications, setApplications] = useState([])
+  const [loadingApps, setLoadingApps] = useState(false)
+
+  // Expandable Sidebar categories state
+  const [expandedCats, setExpandedCats] = useState({ 'Employee Category': true })
 
   // Company Modals
   const [showCompanyModal, setShowCompanyModal] = useState(false)
   const [editingCompany, setEditingCompany] = useState(null)
   const [companyNameInput, setCompanyNameInput] = useState('')
   const [savingCompany, setSavingCompany] = useState(false)
+
+  // Advance Payment Modal
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false)
+  const [advanceAmountInput, setAdvanceAmountInput] = useState('')
+  const [adjustingAdvance, setAdjustingAdvance] = useState(false)
+  const [paymentCards, setPaymentCards] = useState([])
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash')
 
   // Record Modals (Trade License, Health Insurance, Visa, etc.)
   const [showRecordModal, setShowRecordModal] = useState(false)
@@ -80,11 +118,43 @@ export default function CompanyManagement() {
     }
   }
 
+  const getCategoryBaseName = (cat) => {
+    if (!cat) return ''
+    if (cat.includes('/')) {
+      const parts = cat.split('/')
+      return parts[parts.length - 1]
+    }
+    return cat
+  }
+
+  const categoryTree = useMemo(() => {
+    const tree = {}
+    categories.forEach(catName => {
+      if (catName === 'Applications') return
+      if (catName.includes('/')) {
+        const [parent, child] = catName.split('/')
+        if (!tree[parent]) {
+          tree[parent] = { isParent: true, folders: [] }
+        }
+        if (child && !tree[parent].folders.includes(child)) {
+          tree[parent].folders.push(child)
+        }
+      } else {
+        if (!tree[catName]) {
+          tree[catName] = { isParent: false }
+        }
+      }
+    })
+    return tree
+  }, [categories])
+
   const getCategoryIcon = useCallback((cat) => {
-    switch (cat) {
+    const base = getCategoryBaseName(cat)
+    switch (base) {
       case 'Trade License': return <LicenseIcon className="me-1" size={16} />
       case 'Health Insurance': return <InsuranceIcon className="me-1" size={16} />
       case 'Visa': return <VisaIcon className="me-1" size={16} />
+      case 'Labour card': return <CardIcon className="me-1" size={16} />
       case 'Other Documents': return <FolderIcon className="me-1" size={16} />
       default: return <FolderIcon className="me-1" size={16} />
     }
@@ -134,15 +204,47 @@ export default function CompanyManagement() {
     }
   }, [])
 
+  const loadPaymentCards = useCallback(async () => {
+    try {
+      const res = await window.api.fetchPaymentCards()
+      if (res.success) {
+        setPaymentCards(res.data.filter(c => c.isActive))
+      }
+    } catch (err) {
+      console.error('Failed to load payment cards:', err)
+    }
+  }, [])
+
   useEffect(() => {
     loadCompanies()
-  }, [loadCompanies])
+    loadPaymentCards()
+  }, [loadCompanies, loadPaymentCards])
+
+  const loadApplications = useCallback(async () => {
+    setLoadingApps(true)
+    try {
+      const res = await window.api.fetchApplications()
+      if (res.success) {
+        setApplications(res.data)
+      }
+    } catch (err) {
+      console.error('Failed to load applications:', err)
+    } finally {
+      setLoadingApps(false)
+    }
+  }, [])
+
+  const filteredApps = useMemo(() => {
+    if (!selectedCompany) return []
+    return applications.filter(a => a.customerType === 'Company' && a.emiratesId === selectedCompany.name)
+  }, [applications, selectedCompany])
 
   useEffect(() => {
     if (selectedCompany) {
       loadRecords(selectedCompany.id)
+      loadApplications()
     }
-  }, [selectedCompany, loadRecords])
+  }, [selectedCompany, loadRecords, loadApplications])
 
   // Add or Rename Company
   const handleOpenCompanyModal = (company = null) => {
@@ -205,6 +307,82 @@ export default function CompanyManagement() {
     }
   }
 
+  // Manage Advance Balance
+  const handleOpenAdvanceModal = () => {
+    setAdvanceAmountInput('')
+    setSelectedPaymentMethod('Cash')
+    setShowAdvanceModal(true)
+  }
+
+  const handleAdjustAdvance = async (e) => {
+    e.preventDefault()
+    if (!selectedCompany) return
+    const amt = parseFloat(advanceAmountInput)
+    if (isNaN(amt) || amt <= 0) {
+      alert('Please enter a valid positive amount.')
+      return
+    }
+
+    try {
+      setAdjustingAdvance(true)
+      
+      const depositServiceRes = await window.api.getAdvanceDepositService()
+      if (!depositServiceRes.success || !depositServiceRes.data) {
+        alert('Failed to retrieve Advance Deposit service: ' + (depositServiceRes.error || 'Unknown error'))
+        setAdjustingAdvance(false)
+        return
+      }
+      const depositService = depositServiceRes.data
+
+      let staffUsername = 'System'
+      try {
+        const storedUser = localStorage.getItem('currentUser')
+        if (storedUser) {
+          const userObj = JSON.parse(storedUser)
+          if (userObj && userObj.username) {
+            staffUsername = userObj.username
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse current user:', err)
+      }
+
+      const res = await window.api.createApplication({
+        customerName: 'Company Representative',
+        phone: '',
+        emiratesId: selectedCompany.name,
+        customerType: 'Company',
+        serviceId: depositService.id,
+        serviceCharge: amt,
+        customerPayment: selectedPaymentMethod,
+        govtFee: 0,
+        govtPayment: 'N/A',
+        govtEntity: '',
+        typingFee: 0,
+        status: 'Completed',
+        createdBy: staffUsername
+      })
+
+      if (res.success) {
+        // Reload company list
+        const updatedRes = await window.api.fetchCompanies()
+        if (updatedRes.success) {
+          setCompanies(updatedRes.data)
+          // Update selected company to show new balance
+          const found = updatedRes.data.find(c => c.id === selectedCompany.id)
+          if (found) setSelectedCompany(found)
+        }
+        setShowAdvanceModal(false)
+      } else {
+        alert(res.error || 'Failed to adjust advance')
+      }
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setAdjustingAdvance(false)
+    }
+  }
+
   // Record Actions (Visa, Health Insurance, etc.)
   const handleOpenRecordModal = (record = null) => {
     setRecordsError(null)
@@ -244,6 +422,26 @@ export default function CompanyManagement() {
     setSelectedCategory(trimmed)
     setNewCategoryInput('')
     setShowCategoryModal(false)
+  }
+
+  const handleOpenFolderModal = (parentCat) => {
+    setTargetCategoryForFolder(parentCat)
+    setNewFolderInput('')
+    setShowFolderModal(true)
+  }
+
+  const handleAddFolder = (e) => {
+    e.preventDefault()
+    const folderName = newFolderInput.trim()
+    if (!folderName || !targetCategoryForFolder) return
+    const fullCat = `${targetCategoryForFolder}/${folderName}`
+    setCategories(prev => {
+      const combined = new Set([...prev, fullCat])
+      return Array.from(combined)
+    })
+    setSelectedCategory(fullCat)
+    setNewFolderInput('')
+    setShowFolderModal(false)
   }
 
   const handleRecordInputChange = (e) => {
@@ -403,6 +601,7 @@ export default function CompanyManagement() {
                   <thead>
                     <tr>
                       <th>Company Name</th>
+                      <th>Advance Balance</th>
                       <th style={{ textAlign: 'center', width: 330 }}>Actions</th>
                     </tr>
                   </thead>
@@ -416,6 +615,9 @@ export default function CompanyManagement() {
                           <a href="#" className="company-link-name" onClick={(e) => { e.preventDefault(); setSelectedCompany(c); }} style={{ color: 'var(--text-primary)', textDecoration: 'none', verticalAlign: 'middle' }}>
                             {c.name}
                           </a>
+                        </td>
+                        <td style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)' }}>
+                          AED {(c.advanceBalance || 0).toFixed(2)}
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
@@ -445,43 +647,119 @@ export default function CompanyManagement() {
         <>
           <div className="page-header">
             <div className="page-header-left">
-              <a href="#" className="back-link" onClick={(e) => { e.preventDefault(); setSelectedCompany(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', textDecoration: 'none', marginBottom: 10, fontSize: '0.9rem', fontWeight: 600 }}>
+              <a href="#" className="back-link" onClick={(e) => { e.preventDefault(); setSelectedCompany(null); if (onClearInitialId) onClearInitialId(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', textDecoration: 'none', marginBottom: 10, fontSize: '0.9rem', fontWeight: 600 }}>
                 <BackIcon size={14} /> Back to Directory
               </a>
               <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ color: 'var(--accent-primary)', display: 'inline-flex' }}><CompanyIcon size={24} /></span> {selectedCompany.name}
               </h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <span className="badge bg-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.95rem', padding: '6px 12px', borderRadius: '6px', fontWeight: 600 }}>
+                  <SalesIcon size={16} /> Advance Balance: AED {(selectedCompany.advanceBalance || 0).toFixed(2)}
+                </span>
+                <Button variant="outline-success" size="sm" className="py-1 px-2 fw-bold d-inline-flex align-items-center gap-1" onClick={handleOpenAdvanceModal} style={{ fontSize: '0.82rem' }}>
+                  <PlusIcon size={14} /> Receive Advance
+                </Button>
+              </div>
               <p>Manage documents, visas, health insurance, and license details for this company</p>
             </div>
             <div className="page-header-actions" style={{ display: 'flex', gap: 10, alignSelf: 'flex-end' }}>
               <button className="btn-outline-subtle" onClick={() => handleOpenCompanyModal(selectedCompany)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EditIcon size={14} /> Rename
               </button>
-              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <PlusIcon size={14} /> Add {selectedCategory}
+              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }} disabled={selectedCategory === 'Applications'}>
+                <PlusIcon size={14} /> Add {getCategoryBaseName(selectedCategory)}
               </button>
             </div>
           </div>
 
           <div className="company-details-layout">
-            {/* Left Sidebar: Categories List Directory */}
+            {/* Left Sidebar: Collapsible categories & folder tree */}
             <div className="company-categories-sidebar">
               <div className="grid-container" style={{ padding: 16, background: 'var(--bg-secondary)', display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <h4 style={{ fontFamily: 'Outfit', fontSize: '1rem', fontWeight: 700, margin: '0 0 8px 0', borderBottom: '1px solid var(--border-color)', paddingBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                   <FolderIcon size={18} className="text-secondary" /> Document Directory
                 </h4>
-                <div className="d-flex flex-column gap-1" style={{ maxHeight: 400, overflowY: 'auto' }}>
-                  {categories.map((cat) => (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={`category-item-btn ${selectedCategory === cat ? 'active' : ''}`}
-                      onClick={() => setSelectedCategory(cat)}
-                    >
-                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>{getCategoryIcon(cat)}</span>
-                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>{cat}</span>
-                    </button>
-                  ))}
+                <div className="d-flex flex-column gap-1" style={{ maxHeight: 450, overflowY: 'auto' }}>
+                  {Object.keys(categoryTree).map((parent) => {
+                    const node = categoryTree[parent]
+                    if (node.isParent) {
+                      const isExpanded = !!expandedCats[parent]
+                      return (
+                        <div key={parent} style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 6 }}>
+                          {/* Parent collapsible header */}
+                          <div 
+                            className="category-item-btn d-flex align-items-center justify-content-between"
+                            style={{ cursor: 'pointer', fontWeight: 600, padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'rgba(255, 255, 255, 0.02)' }}
+                            onClick={() => setExpandedCats(prev => ({ ...prev, [parent]: !prev[parent] }))}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <FolderIcon size={16} className="text-secondary" />
+                              <span>{parent}</span>
+                            </span>
+                            <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>
+                              {isExpanded ? '▼' : '►'}
+                            </span>
+                          </div>
+
+                          {/* Expanded subfolders */}
+                          {isExpanded && (
+                            <div style={{ paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, borderLeft: '1px solid var(--border-color)', marginLeft: 8 }}>
+                              {node.folders.map((folder) => {
+                                const fullPath = `${parent}/${folder}`
+                                return (
+                                  <button
+                                    key={folder}
+                                    type="button"
+                                    className={`category-item-btn ${selectedCategory === fullPath ? 'active' : ''}`}
+                                    onClick={() => setSelectedCategory(fullPath)}
+                                    style={{ padding: '6px 10px', fontSize: '0.88rem' }}
+                                  >
+                                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>{getCategoryIcon(fullPath)}</span>
+                                    <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>{folder}</span>
+                                  </button>
+                                )
+                              })}
+                              {/* Add Folder button under this category */}
+                              <button
+                                type="button"
+                                className="btn-outline-subtle w-100 justify-content-center mt-1 py-1"
+                                style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+                                onClick={(e) => { e.stopPropagation(); handleOpenFolderModal(parent); }}
+                              >
+                                <PlusIcon size={12} /> Add Folder
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    } else {
+                      // Standard top-level category with no folders
+                      return (
+                        <button
+                          key={parent}
+                          type="button"
+                          className={`category-item-btn ${selectedCategory === parent ? 'active' : ''}`}
+                          onClick={() => setSelectedCategory(parent)}
+                        >
+                          <span style={{ display: 'inline-flex', alignItems: 'center' }}>{getCategoryIcon(parent)}</span>
+                          <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>{parent}</span>
+                        </button>
+                      )
+                    }
+                  })}
+
+                  <hr style={{ margin: '8px 0', borderColor: 'var(--border-color)' }} />
+
+                  {/* Applications History Item */}
+                  <button
+                    type="button"
+                    className={`category-item-btn ${selectedCategory === 'Applications' ? 'active' : ''}`}
+                    onClick={() => setSelectedCategory('Applications')}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}><ApplicationIcon size={16} className="me-1" /></span>
+                    <span style={{ flex: 1, textAlign: 'left' }}>Applications History</span>
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -494,83 +772,146 @@ export default function CompanyManagement() {
               </div>
             </div>
 
-            {/* Right Pane: Records list for selected category */}
-            <div className="company-records-pane">
-              <div className="grid-container" style={{ marginTop: 0 }}>
-                <div className="grid-toolbar">
-                  <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ display: 'inline-flex', marginRight: 8 }}>{getCategoryIcon(selectedCategory)}</span>
-                    <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{selectedCategory} Entries</h3>
-                    <span className="record-count">{filteredRecords.length} records</span>
+            {/* Right Pane: Records list for selected category OR Applications History */}
+            {selectedCategory === 'Applications' ? (
+              <div className="company-records-pane">
+                <div className="grid-container" style={{ marginTop: 0 }}>
+                  <div className="grid-toolbar">
+                    <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', marginRight: 8 }}><ApplicationIcon size={16} /></span>
+                      <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>Applications History</h3>
+                      <span className="record-count">{filteredApps.length} transactions</span>
+                    </div>
+                    <div className="grid-toolbar-right">
+                      <button className="btn-outline-subtle" onClick={loadApplications} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <RefreshIcon size={14} /> Refresh
+                      </button>
+                    </div>
                   </div>
-                  <div className="grid-toolbar-right">
-                    <button className="btn-outline-subtle" onClick={() => loadRecords(selectedCompany.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <RefreshIcon size={14} /> Refresh
-                    </button>
-                  </div>
-                </div>
 
-                <div className="admin-table-wrap">
-                  {loadingRecords ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
-                      <Spinner animation="border" variant="light" size="sm" />
-                      <span style={{ color: 'var(--text-secondary)' }}>Loading company documents...</span>
-                    </div>
-                  ) : filteredRecords.length === 0 ? (
-                    <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                      📄 No records added in <strong>{selectedCategory}</strong> yet. Click "+ Add {selectedCategory}" to insert your first record.
-                    </div>
-                  ) : (
-                    <Table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>{getEmployeeFieldLabel()}</th>
-                          <th>{getDocNumberLabel()}</th>
-                          <th>{getDocTypeLabel()}</th>
-                          <th style={{ width: 140 }}>Issue Date</th>
-                          <th style={{ width: 140 }}>Expiry Date</th>
-                          <th style={{ width: 150 }}>Status / Days</th>
-                          <th>Notes</th>
-                          <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRecords.map((r) => {
-                          const expiryInfo = getDaysLeftInfo(r.expiryDate)
-                          return (
-                            <tr key={r.id}>
-                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.employeeName || '—'}</td>
-                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
-                              <td>{r.documentType || '—'}</td>
-                              <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                              <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                              <td>
-                                <div className="d-flex flex-column">
-                                  <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
-                                </div>
-                              </td>
-                              <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
-                                {r.notes || '—'}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                                  <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
-                                    <EditIcon size={14} />
-                                  </Button>
-                                  <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
-                                    <TrashIcon size={14} />
-                                  </Button>
-                                </div>
+                  <div className="admin-table-wrap">
+                    {loadingApps ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
+                        <Spinner animation="border" variant="light" size="sm" />
+                        <span style={{ color: 'var(--text-secondary)' }}>Loading transactions...</span>
+                      </div>
+                    ) : filteredApps.length === 0 ? (
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
+                        📄 No applications recorded for this company yet.
+                      </div>
+                    ) : (
+                      <Table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 100 }}>ID</th>
+                            <th>Service</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Received (AED)</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Paid (AED)</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Profit (AED)</th>
+                            <th>Paid By</th>
+                            <th>Date</th>
+                            <th style={{ textAlign: 'center', width: 120 }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredApps.map((a) => (
+                            <tr key={a.id}>
+                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
+                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                              <td>{a.customerPayment}</td>
+                              <td>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
                               </td>
                             </tr>
-                          )
-                        })}
-                      </tbody>
-                    </Table>
-                  )}
+                          ))}
+                        </tbody>
+                      </Table>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="company-records-pane">
+                <div className="grid-container" style={{ marginTop: 0 }}>
+                  <div className="grid-toolbar">
+                    <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', marginRight: 8 }}>{getCategoryIcon(selectedCategory)}</span>
+                      <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{getCategoryBaseName(selectedCategory)} Entries</h3>
+                      <span className="record-count">{filteredRecords.length} records</span>
+                    </div>
+                    <div className="grid-toolbar-right">
+                      <button className="btn-outline-subtle" onClick={() => loadRecords(selectedCompany.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <RefreshIcon size={14} /> Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="admin-table-wrap">
+                    {loadingRecords ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
+                        <Spinner animation="border" variant="light" size="sm" />
+                        <span style={{ color: 'var(--text-secondary)' }}>Loading company documents...</span>
+                      </div>
+                    ) : filteredRecords.length === 0 ? (
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
+                        📄 No records added in <strong>{getCategoryBaseName(selectedCategory)}</strong> yet. Click "+ Add {getCategoryBaseName(selectedCategory)}" to insert your first record.
+                      </div>
+                    ) : (
+                      <Table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>{getEmployeeFieldLabel()}</th>
+                            <th>{getDocNumberLabel()}</th>
+                            <th>{getDocTypeLabel()}</th>
+                            <th style={{ width: 140 }}>Issue Date</th>
+                            <th style={{ width: 140 }}>Expiry Date</th>
+                            <th style={{ width: 150 }}>Status / Days</th>
+                            <th>Notes</th>
+                            <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredRecords.map((r) => {
+                            const expiryInfo = getDaysLeftInfo(r.expiryDate)
+                            return (
+                              <tr key={r.id}>
+                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.employeeName || '—'}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
+                                <td>{r.documentType || '—'}</td>
+                                <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                <td>
+                                  <div className="d-flex flex-column">
+                                    <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
+                                  </div>
+                                </td>
+                                <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
+                                  {r.notes || '—'}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                                    <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
+                                      <EditIcon size={14} />
+                                    </Button>
+                                    <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
+                                      <TrashIcon size={14} />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </Table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -740,6 +1081,87 @@ export default function CompanyManagement() {
             <Button variant="outline-secondary" onClick={() => setShowCategoryModal(false)}>Cancel</Button>
             <Button type="submit" className="btn-primary-glow" disabled={!newCategoryInput.trim()} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
               <SaveIcon size={14} /> Save Category
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* ─────────────────────────────────────────────────────────────
+          6. ADD FOLDER MODAL
+          ───────────────────────────────────────────────────────────── */}
+      <Modal show={showFolderModal} onHide={() => setShowFolderModal(false)} centered contentClassName="modal-dark">
+        <Modal.Header closeButton closeVariant="white">
+          <Modal.Title>Add Folder under {targetCategoryForFolder}</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleAddFolder}>
+          <Modal.Body>
+            <Form.Group className="mb-3">
+              <Form.Label>Folder Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="e.g. Visa, Labor Card, Insurance"
+                value={newFolderInput}
+                onChange={(e) => setNewFolderInput(e.target.value)}
+                required
+                autoFocus
+              />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="outline-secondary" onClick={() => setShowFolderModal(false)}>Cancel</Button>
+            <Button type="submit" className="btn-primary-glow" disabled={!newFolderInput.trim()} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <SaveIcon size={14} /> Save Folder
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* ─── Receive Advance Modal ─── */}
+      <Modal show={showAdvanceModal} onHide={() => setShowAdvanceModal(false)} centered contentClassName="modal-dark">
+        <Modal.Header closeButton closeVariant="white">
+          <Modal.Title>Receive Advance — {selectedCompany?.name}</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleAdjustAdvance}>
+          <Modal.Body>
+            <Form.Group className="mb-3">
+              <Form.Label>Current Balance</Form.Label>
+              <Form.Control type="text" readOnly value={`AED ${(selectedCompany?.advanceBalance || 0).toFixed(2)}`} style={{ background: '#1c1f2e', color: '#fff', border: '1px solid var(--border-color)', fontWeight: 600 }} />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Amount to Add (AED)</Form.Label>
+              <Form.Control
+                type="number"
+                step="0.01"
+                placeholder="e.g. 10000"
+                value={advanceAmountInput}
+                onChange={(e) => setAdvanceAmountInput(e.target.value)}
+                required
+                autoFocus
+                min="0.01"
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Payment Method</Form.Label>
+              <Form.Select
+                value={selectedPaymentMethod}
+                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+              >
+                <option value="Cash">Cash</option>
+                <option value="Card">Card (General)</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Account Transfer">Account Transfer</option>
+                {paymentCards.map((c) => (
+                  <option key={c.id} value={c.bankName}>
+                    {c.bankName}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="outline-secondary" onClick={() => setShowAdvanceModal(false)}>Cancel</Button>
+            <Button type="submit" className="btn-success-glow" disabled={adjustingAdvance || !advanceAmountInput} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {adjustingAdvance ? <Spinner animation="border" size="sm" /> : 'Apply Deposit'}
             </Button>
           </Modal.Footer>
         </Form>

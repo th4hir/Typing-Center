@@ -13,6 +13,7 @@ const api = {
   // Services
   fetchServices: () => ipcRenderer.invoke('get-services'),
   createService: (data) => ipcRenderer.invoke('create-service', data),
+  getAdvanceDepositService: () => ipcRenderer.invoke('get-advance-deposit-service'),
 
   // Payment Cards
   fetchPaymentCards: () => ipcRenderer.invoke('get-payment-cards'),
@@ -24,6 +25,7 @@ const api = {
   createCompany: (data) => ipcRenderer.invoke('create-company', data),
   updateCompany: (data) => ipcRenderer.invoke('update-company', data),
   deleteCompany: (data) => ipcRenderer.invoke('delete-company', data),
+  adjustCompanyAdvance: (data) => ipcRenderer.invoke('adjust-company-advance', data),
   fetchCompanyRecords: (data) => ipcRenderer.invoke('get-company-records', data),
   createCompanyRecord: (data) => ipcRenderer.invoke('create-company-record', data),
   updateCompanyRecord: (data) => ipcRenderer.invoke('update-company-record', data),
@@ -34,6 +36,7 @@ const api = {
   createIndividual: (data) => ipcRenderer.invoke('create-individual', data),
   updateIndividual: (data) => ipcRenderer.invoke('update-individual', data),
   deleteIndividual: (data) => ipcRenderer.invoke('delete-individual', data),
+  adjustIndividualAdvance: (data) => ipcRenderer.invoke('adjust-individual-advance', data),
   fetchIndividualRecords: (data) => ipcRenderer.invoke('get-individual-records', data),
   createIndividualRecord: (data) => ipcRenderer.invoke('create-individual-record', data),
   updateIndividualRecord: (data) => ipcRenderer.invoke('update-individual-record', data),
@@ -75,7 +78,8 @@ const api = {
   createExpense: (data) => ipcRenderer.invoke('create-expense', data),
   updateExpense: (data) => ipcRenderer.invoke('update-expense', data),
   deleteExpense: (data) => ipcRenderer.invoke('delete-expense', data),
-  getMonthlyReport: (data) => ipcRenderer.invoke('get-monthly-report', data)
+  getMonthlyReport: (data) => ipcRenderer.invoke('get-monthly-report', data),
+  fetchExpiringDocuments: () => ipcRenderer.invoke('get-expiring-documents')
 }
 
 if (process.contextIsolated) {

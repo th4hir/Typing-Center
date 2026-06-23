@@ -242,9 +242,9 @@ function ExpensesManagement() {
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 className="admin-input"
               >
-                <option value="Cash">💵 Cash</option>
+                <option value="Cash">Cash</option>
                 {paymentCards.map((card) => (
-                  <option key={card.id} value={card.bankName}>💳 {card.bankName}</option>
+                  <option key={card.id} value={card.bankName}>{card.bankName}</option>
                 ))}
               </Form.Select>
             </Form.Group>

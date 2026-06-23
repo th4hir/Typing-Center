@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AllCommunityModule, themeAlpine } from 'ag-grid-community'
 import { AgGridReact } from 'ag-grid-react'
 import { Modal, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
+import HomeDashboard from './HomeDashboard'
 import AdminSettings from './AdminSettings'
 import DailyReport from './DailyReport'
 import CardAccounts from './CardAccounts'
@@ -11,7 +12,10 @@ import IndividualManagement from './IndividualManagement'
 import ExpensesManagement from './ExpensesManagement'
 import MonthlyReport from './MonthlyReport'
 import logo from '../../logo.png'
+import fcLogo from '../../FC LOGO NEW.png'
+import wallpaper from '../../Wallpaper.png'
 import {
+  HomeIcon,
   PlusIcon,
   EditIcon,
   TrashIcon,
@@ -117,14 +121,19 @@ const emptyForm = {
   customerPayment: 'Cash',
   govtFee: '',
   govtPayment: 'Cash',
-  status: 'Pending'
+  status: 'Pending',
+  govtEntity: ''
 }
 
 // ─── App Component ───────────────────────────────────────────
 function App() {
   const gridRef = useRef(null)
   const [quickFilter, setQuickFilter] = useState('')
-  const [currentPage, setCurrentPage] = useState('applications')
+  const [currentPage, setCurrentPage] = useState('dashboard')
+  const [gridFilter, setGridFilter] = useState('all') // 'all' | 'credit' | 'pending-govt'
+  const [appCompanyId, setAppCompanyId] = useState(null)
+  const [appIndividualId, setAppIndividualId] = useState(null)
+  const [saveToDirectory, setSaveToDirectory] = useState(false)
 
   // ── Theme Management ──
   const [theme, setTheme] = useState(() => {
@@ -170,10 +179,23 @@ function App() {
   // ── Live data ──
   const [applications, setApplications] = useState([])
   const [services, setServices] = useState([])
+  const [categories, setCategories] = useState([])
+  const [individuals, setIndividuals] = useState([])
   const [paymentCards, setPaymentCards] = useState([])
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // ── Category & Service filters/inline add ──
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
+  const [showAddCategory, setShowAddCategory] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [showAddService, setShowAddService] = useState(false)
+  const [newServiceName, setNewServiceName] = useState('')
+  const [newServicePrice, setNewServicePrice] = useState('')
+  const [newServiceCategoryId, setNewServiceCategoryId] = useState('')
+  const [addingService, setAddingService] = useState(false)
 
   const companiesRef = useRef(companies)
   useEffect(() => {
@@ -204,6 +226,7 @@ function App() {
     createdBy: true,
     createdAt: true,
     status: true,
+    govtEntity: true,
     actions: true
   })
 
@@ -221,6 +244,7 @@ function App() {
       case 'createdBy': return 'Staff'
       case 'createdAt': return 'Date'
       case 'status': return 'Status'
+      case 'govtEntity': return 'Govt Entity'
       case 'actions': return 'Actions'
       default: return col
     }
@@ -289,6 +313,20 @@ function App() {
     } catch (err) { console.error(err) }
   }, [])
 
+  const loadCategories = useCallback(async () => {
+    try {
+      const result = await window.api.fetchCategories()
+      if (result.success) setCategories(result.data)
+    } catch (err) { console.error(err) }
+  }, [])
+
+  const loadIndividuals = useCallback(async () => {
+    try {
+      const result = await window.api.fetchIndividuals()
+      if (result.success) setIndividuals(result.data)
+    } catch (err) { console.error(err) }
+  }, [])
+
   const loadPaymentCards = useCallback(async () => {
     try {
       const result = await window.api.fetchPaymentCards()
@@ -311,6 +349,8 @@ function App() {
         setShowDbConnectionSetup(false)
         loadShopConfig()
         loadApplications()
+        loadCategories()
+        loadIndividuals()
         loadServices()
         loadPaymentCards()
         loadCompanies()
@@ -333,7 +373,7 @@ function App() {
     } finally {
       setCheckingDb(false)
     }
-  }, [loadShopConfig, loadApplications, loadServices, loadPaymentCards, loadCompanies])
+  }, [loadShopConfig, loadApplications, loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
 
   // ── Modal ──
   const [showModal, setShowModal] = useState(false)
@@ -351,10 +391,14 @@ function App() {
 
   // ── Computed typing fee ──
   const typingFee = useMemo(() => {
+    const svc = services.find(s => s.id === parseInt(formData.serviceId, 10))
+    if (svc && svc.name === 'Advance Deposit') {
+      return 0
+    }
     const charge = parseFloat(formData.serviceCharge) || 0
     const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
     return Math.max(0, charge - govt)
-  }, [formData.serviceCharge, formData.govtFee, formData.govtPayment])
+  }, [formData.serviceCharge, formData.govtFee, formData.govtPayment, formData.serviceId, services])
 
   useEffect(() => {
     verifyDatabaseConnection()
@@ -382,8 +426,14 @@ function App() {
         if (svc) {
           updated.serviceCharge = String(svc.price)
           const nameLower = svc.name.toLowerCase()
-          // Automatically set govtPayment to N/A and govtFee to 0 for print, CV, photocopy, typing, resume services
-          if (
+          if (svc.name === 'Advance Deposit') {
+            updated.govtPayment = 'N/A'
+            updated.govtFee = '0'
+            updated.govtEntity = ''
+            if (updated.customerPayment === 'Advance') {
+              updated.customerPayment = 'Cash'
+            }
+          } else if (
             nameLower.includes('print') ||
             nameLower.includes('cv') ||
             nameLower.includes('resume') ||
@@ -426,6 +476,7 @@ function App() {
       setSaving(true)
       const charge = parseFloat(formData.serviceCharge) || 0
       const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
+      const entity = formData.govtPayment === 'N/A' ? '' : (formData.govtEntity || '').trim()
       let result
       if (editingApplicationId) {
         result = await window.api.updateApplication({
@@ -439,6 +490,7 @@ function App() {
           customerPayment: formData.customerPayment,
           govtFee: govt,
           govtPayment: formData.govtPayment,
+          govtEntity: entity,
           typingFee: Math.max(0, charge - govt),
           status: formData.status || 'Pending'
         })
@@ -453,21 +505,33 @@ function App() {
           customerPayment: formData.customerPayment,
           govtFee: govt,
           govtPayment: formData.govtPayment,
+          govtEntity: entity,
           typingFee: Math.max(0, charge - govt),
           status: 'Pending',
           createdBy: currentUser?.username || ''
         })
       }
       if (result.success) {
+        if (modalTab === 'individual' && saveToDirectory) {
+          try {
+            await window.api.createIndividual({
+              name: formData.customerName.trim(),
+              phone: formData.phone.trim()
+            })
+          } catch (dirErr) {
+            console.error('Failed to auto-save to directory:', dirErr)
+          }
+        }
         setShowModal(false)
         setFormData(emptyForm)
         setFormError(null)
         setEditingApplicationId(null)
+        setSaveToDirectory(false)
         await loadApplications()
       } else { setFormError(result.error) }
     } catch (err) { setFormError(err.message) }
     finally { setSaving(false) }
-  }, [formData, modalTab, companies, loadApplications, editingApplicationId, currentUser])
+  }, [formData, modalTab, companies, loadApplications, editingApplicationId, currentUser, saveToDirectory])
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false)
@@ -476,9 +540,19 @@ function App() {
     setShowAddCompany(false)
     setNewCompanyName('')
     setEditingApplicationId(null)
+    setSaveToDirectory(false)
+    setSelectedCategoryId('')
+    setShowAddCategory(false)
+    setNewCategoryName('')
+    setShowAddService(false)
+    setNewServiceName('')
+    setNewServicePrice('')
+    setNewServiceCategoryId('')
   }, [])
 
   const handleEditApplicationClick = useCallback((appData) => {
+    loadCategories()
+    loadIndividuals()
     loadServices()
     loadPaymentCards()
     loadCompanies()
@@ -494,6 +568,10 @@ function App() {
       if (comp) companyId = String(comp.id)
     }
 
+    const svc = servicesRef.current.find(s => s.id === appData.serviceId)
+    const catId = svc ? String(svc.categoryId) : ''
+    setSelectedCategoryId(catId)
+
     setFormData({
       customerName: appData.customerName,
       phone: appData.phone || '',
@@ -504,11 +582,13 @@ function App() {
       customerPayment: appData.customerPayment || 'Cash',
       govtFee: String(appData.govtFee),
       govtPayment: appData.govtPayment || 'Cash',
+      govtEntity: appData.govtEntity || '',
       status: appData.status || 'Pending'
     })
+    setSaveToDirectory(false)
 
     setShowModal(true)
-  }, [loadServices, loadPaymentCards, loadCompanies])
+  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
 
   const handleDeleteApplicationClick = useCallback(async (appData) => {
     if (!window.confirm(`Are you sure you want to delete the application for "${appData.customerName}"?`)) return
@@ -531,10 +611,14 @@ function App() {
     setShowModal(true)
     setModalTab('individual')
     setFormData(emptyForm)
+    setSaveToDirectory(false)
+    setSelectedCategoryId('')
+    await loadCategories()
+    await loadIndividuals()
     await loadServices()
     await loadPaymentCards()
     await loadCompanies()
-  }, [loadServices, loadPaymentCards, loadCompanies])
+  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
 
   // ── Tab switch ──
   const handleTabSwitch = useCallback((tab) => {
@@ -563,6 +647,68 @@ function App() {
     finally { setAddingCompany(false) }
   }, [newCompanyName, loadCompanies])
 
+  // ── Add Category inline ──
+  const handleAddCategoryInline = useCallback(async () => {
+    if (!newCategoryName.trim()) return
+    try {
+      setAddingCategory(true)
+      const result = await window.api.createCategory({ name: newCategoryName.trim() })
+      if (result.success) {
+        await loadCategories()
+        setSelectedCategoryId(String(result.data.id))
+        setNewCategoryName('')
+        setShowAddCategory(false)
+      } else {
+        setFormError(result.error)
+      }
+    } catch (err) { setFormError(err.message) }
+    finally { setAddingCategory(false) }
+  }, [newCategoryName, loadCategories])
+
+  // ── Add Service inline ──
+  const handleAddServiceInline = useCallback(async () => {
+    if (!newServiceName.trim()) return
+    const catId = newServiceCategoryId || selectedCategoryId
+    if (!catId) {
+      setFormError('Please select or specify a category for the new service.')
+      return
+    }
+    const priceVal = parseFloat(newServicePrice) || 0
+    try {
+      setAddingService(true)
+      const result = await window.api.createService({
+        name: newServiceName.trim(),
+        price: priceVal,
+        categoryId: parseInt(catId, 10)
+      })
+      if (result.success) {
+        await loadServices()
+        setFormData(prev => ({
+          ...prev,
+          serviceId: String(result.data.id),
+          serviceCharge: String(priceVal)
+        }))
+        setNewServiceName('')
+        setNewServicePrice('')
+        setNewServiceCategoryId('')
+        setShowAddService(false)
+      } else {
+        setFormError(result.error)
+      }
+    } catch (err) { setFormError(err.message) }
+    finally { setAddingService(false) }
+  }, [newServiceName, newServicePrice, newServiceCategoryId, selectedCategoryId, loadServices])
+
+  const filteredApplications = useMemo(() => {
+    if (gridFilter === 'credit') {
+      return applications.filter(a => a.customerPayment === 'Credit' && a.status !== 'Completed' && a.status !== 'Rejected')
+    }
+    if (gridFilter === 'pending-govt') {
+      return applications.filter(a => (a.status === 'Pending' || a.status === 'In Progress') && a.govtPayment !== 'N/A')
+    }
+    return applications
+  }, [applications, gridFilter])
+
   // ── Grid columns ──
   const columnDefs = useMemo(() => [
     { headerName: 'ID', field: 'id', width: 70, sortable: true, filter: true, hide: !visibleCols.id },
@@ -572,6 +718,7 @@ function App() {
     { headerName: 'Service', field: 'service', flex: 1, minWidth: 140, sortable: true, filter: true, valueGetter: (p) => p.data?.service?.name || '—', hide: !visibleCols.service },
     { headerName: 'Received', field: 'serviceCharge', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.serviceCharge },
     { headerName: 'Paid', field: 'govtFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.govtFee },
+    { headerName: 'Paid To Entity', field: 'govtEntity', width: 120, sortable: true, filter: true, hide: !visibleCols.govtEntity },
     { headerName: 'Profit', field: 'typingFee', width: 90, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), cellStyle: { color: '#34d399' }, hide: !visibleCols.typingFee },
     { headerName: 'Paid By', field: 'customerPayment', width: 110, sortable: true, filter: true, hide: !visibleCols.customerPayment },
     { headerName: 'Staff', field: 'createdBy', width: 100, sortable: true, filter: true, hide: !visibleCols.createdBy },
@@ -606,11 +753,29 @@ function App() {
   // ── Navigation ──
   const handleNav = useCallback((page) => {
     setCurrentPage(page)
+    setGridFilter('all')
     if (page === 'applications') { loadApplications(); loadServices(); loadCompanies() }
   }, [loadApplications, loadServices, loadCompanies])
 
+  const handleDashboardNavigate = useCallback((page, filterType) => {
+    setCurrentPage(page)
+    setGridFilter(filterType)
+    if (page === 'applications') { loadApplications(); loadServices(); loadCompanies() }
+  }, [loadApplications, loadServices, loadCompanies])
+
+  const handleDashboardOpenFolder = useCallback((type, parentId) => {
+    if (type === 'Company') {
+      setAppCompanyId(parentId)
+      setCurrentPage('company')
+    } else if (type === 'Individual') {
+      setAppIndividualId(parentId)
+      setCurrentPage('individual')
+    }
+  }, [])
+
   const navItems = useMemo(() => {
     const items = [
+      { icon: <HomeIcon size={18} />, label: 'Home', page: 'dashboard' },
       { icon: <ApplicationIcon size={18} />, label: 'Applications', page: 'applications' },
       { icon: <CompanyIcon size={18} />, label: 'Company', page: 'company' },
       { icon: <IndividualIcon size={18} />, label: 'Individual', page: 'individual' },
@@ -627,6 +792,16 @@ function App() {
 
   // ── Render content ──
   const renderContent = () => {
+    if (currentPage === 'dashboard') {
+      return (
+        <HomeDashboard
+          applications={applications}
+          shopName={shopName}
+          onNavigate={handleDashboardNavigate}
+          onOpenFolder={handleDashboardOpenFolder}
+        />
+      )
+    }
     if (currentPage === 'settings') {
       if (currentUser?.role !== 'Admin') {
         return <div className="p-4"><Alert variant="danger">Access Denied: Admin permissions required.</Alert></div>
@@ -637,8 +812,22 @@ function App() {
     if (currentPage === 'monthly-report') return <MonthlyReport />
     if (currentPage === 'card-accounts') return <CardAccounts />
     if (currentPage === 'expenses') return <ExpensesManagement />
-    if (currentPage === 'company') return <CompanyManagement />
-    if (currentPage === 'individual') return <IndividualManagement />
+    if (currentPage === 'company') {
+      return (
+        <CompanyManagement
+          initialCompanyId={appCompanyId}
+          onClearInitialId={() => setAppCompanyId(null)}
+        />
+      )
+    }
+    if (currentPage === 'individual') {
+      return (
+        <IndividualManagement
+          initialIndividualId={appIndividualId}
+          onClearInitialId={() => setAppIndividualId(null)}
+        />
+      )
+    }
 
     return (
       <>
@@ -687,13 +876,24 @@ function App() {
           </div>
         </div>
 
+        {gridFilter !== 'all' && (
+          <Alert variant="info" className="d-flex align-items-center justify-content-between py-2 px-3 mb-3 border-0 rounded-3 shadow-sm" style={{ fontSize: '0.9rem', background: 'rgba(0, 124, 195, 0.15)', color: 'var(--text-primary)' }}>
+            <span>
+              <ReportIcon size={14} className="me-1 align-middle text-info" /> Showing <strong>{gridFilter === 'credit' ? 'Outstanding Customer Credits (To Receive)' : 'Pending Government Payouts (To be Paid Out)'}</strong> entries from Dashboard.
+            </span>
+            <Button variant="outline-info" size="sm" onClick={() => setGridFilter('all')} style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--text-primary)', borderColor: 'rgba(0, 124, 195, 0.3)' }}>
+              Clear Filter
+            </Button>
+          </Alert>
+        )}
+
         {error && <Alert variant="danger" className="mb-3" dismissible onClose={() => setError(null)}><strong>Error:</strong> {error}</Alert>}
 
         <div className="grid-container">
           <div className="grid-toolbar">
             <div className="grid-toolbar-left">
               <h3>Customer Applications</h3>
-              <span className="record-count">{applications.length} records</span>
+              <span className="record-count">{filteredApplications.length} records</span>
             </div>
             <div className="grid-toolbar-right">
               <input className="grid-filter-input" type="text" placeholder="Filter records..." value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)} />
@@ -736,7 +936,7 @@ function App() {
                 ref={gridRef}
                 theme={theme === 'light' ? lightGridTheme : darkGridTheme}
                 modules={[AllCommunityModule]}
-                rowData={applications}
+                rowData={filteredApplications}
                 columnDefs={columnDefs}
                 defaultColDef={defaultColDef}
                 animateRows={true}
@@ -752,57 +952,222 @@ function App() {
     )
   }
 
+  // ── Category and Service selection (shared between tabs) ──
+  const renderCategoryAndServiceSection = () => {
+    const filteredServices = selectedCategoryId
+      ? services.filter((s) => s.categoryId === parseInt(selectedCategoryId, 10))
+      : services
+
+    return (
+      <>
+        {/* Category Dropdown with inline add button */}
+        <Form.Group className="mb-3">
+          <Form.Label className="modal-field-label">Category</Form.Label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Form.Select
+              value={selectedCategoryId}
+              onChange={(e) => {
+                setSelectedCategoryId(e.target.value)
+                // If service is selected and doesn't belong to new category, reset serviceId
+                if (e.target.value && formData.serviceId) {
+                  const svc = services.find(s => s.id === parseInt(formData.serviceId, 10))
+                  if (svc && String(svc.categoryId) !== e.target.value) {
+                    setFormData(prev => ({ ...prev, serviceId: '', serviceCharge: '' }))
+                  }
+                }
+              }}
+              style={{ flex: 1 }}
+            >
+              <option value="">All Categories</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </Form.Select>
+            <button
+              type="button"
+              className="btn-outline-subtle d-flex align-items-center justify-content-center"
+              style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+              onClick={() => {
+                setShowAddCategory(!showAddCategory)
+                setShowAddService(false)
+              }}
+            >
+              {showAddCategory ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+            </button>
+          </div>
+        </Form.Group>
+
+        {showAddCategory && (
+          <div className="modal-inline-add mb-3">
+            <Form.Control
+              type="text"
+              placeholder="New category name"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn-primary-glow"
+              style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+              disabled={addingCategory || !newCategoryName.trim()}
+              onClick={handleAddCategoryInline}
+            >
+              {addingCategory ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
+            </button>
+          </div>
+        )}
+
+        {/* Service Dropdown with inline add button */}
+        <Form.Group className="mb-3">
+          <Form.Label className="modal-field-label">Service <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Form.Select
+              name="serviceId"
+              value={formData.serviceId}
+              onChange={handleInputChange}
+              style={{ flex: 1 }}
+            >
+              <option value="">Select a service...</option>
+              {filteredServices.map((svc) => (
+                <option key={svc.id} value={svc.id}>
+                  {svc.name} — AED {svc.price.toFixed(2)} ({svc.category?.name})
+                </option>
+              ))}
+            </Form.Select>
+            <button
+              type="button"
+              className="btn-outline-subtle d-flex align-items-center justify-content-center"
+              style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+              onClick={() => {
+                setShowAddService(!showAddService)
+                setShowAddCategory(false)
+                if (selectedCategoryId) {
+                  setNewServiceCategoryId(selectedCategoryId)
+                }
+              }}
+            >
+              {showAddService ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+            </button>
+          </div>
+        </Form.Group>
+
+        {showAddService && (
+          <div className="modal-inline-add mb-3" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, background: 'rgba(255,255,255,0.02)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+            <div style={{ flex: '1 1 100%', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Add New Service</div>
+            <Form.Control
+              type="text"
+              placeholder="Service name"
+              value={newServiceName}
+              onChange={(e) => setNewServiceName(e.target.value)}
+              style={{ flex: '2 1 150px' }}
+            />
+            <Form.Control
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Price (AED)"
+              value={newServicePrice}
+              onChange={(e) => setNewServicePrice(e.target.value)}
+              style={{ flex: '1 1 80px' }}
+            />
+            <Form.Select
+              value={newServiceCategoryId || selectedCategoryId}
+              onChange={(e) => setNewServiceCategoryId(e.target.value)}
+              style={{ flex: '1 1 120px' }}
+            >
+              <option value="">Category...</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </Form.Select>
+            <button
+              type="button"
+              className="btn-primary-glow"
+              style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+              disabled={addingService || !newServiceName.trim()}
+              onClick={handleAddServiceInline}
+            >
+              {addingService ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save Service</>}
+            </button>
+          </div>
+        )}
+      </>
+    )
+  }
+
   // ── Payment fields (shared between tabs) ──
-  const renderPaymentSection = () => (
-    <div className="modal-payment-section">
-      <div className="modal-section-title">💰 Payment Details</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <Form.Group>
-          <Form.Label className="modal-field-label">Received (AED)</Form.Label>
-          <Form.Control type="number" step="0.01" min="0" name="serviceCharge" placeholder="0.00" value={formData.serviceCharge} onChange={handleInputChange} />
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="modal-field-label">Paid (AED)</Form.Label>
-          <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={formData.govtFee} onChange={handleInputChange} disabled={formData.govtPayment === 'N/A'} />
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="modal-field-label">Typing Fee</Form.Label>
-          <Form.Control type="text" readOnly value={`AED ${typingFee.toFixed(2)}`} style={{ color: 'var(--success)', fontWeight: 600 }} />
-        </Form.Group>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-        <Form.Group>
-          <Form.Label className="modal-field-label">Received</Form.Label>
-          <Form.Select name="customerPayment" value={formData.customerPayment} onChange={handleInputChange}>
-            <option value="Cash">💵 Cash</option>
-            <option value="Card">💳 Card</option>
-            <option value="Credit">💳 Credit</option>
-          </Form.Select>
-        </Form.Group>
-        <Form.Group>
-          <Form.Label className="modal-field-label">Paid To</Form.Label>
-          <Form.Select name="govtPayment" value={formData.govtPayment} onChange={handleInputChange}>
-            <option value="Cash">💵 Cash</option>
-            <option value="N/A">🚫 N/A (None)</option>
-            {paymentCards.map((c) => (<option key={c.id} value={c.bankName}>💳 {c.bankName}</option>))}
-          </Form.Select>
-        </Form.Group>
-      </div>
-      {editingApplicationId && (
-        <div style={{ marginTop: 12 }}>
+  const renderPaymentSection = () => {
+    const selectedSvc = services.find(s => s.id === parseInt(formData.serviceId, 10))
+    const isDeposit = selectedSvc && selectedSvc.name === 'Advance Deposit'
+
+    return (
+      <div className="modal-payment-section">
+        <div className="modal-section-title"><SalesIcon size={18} className="me-2" />Payment Details</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <Form.Group>
-            <Form.Label className="modal-field-label">Status</Form.Label>
-            <Form.Select name="status" value={formData.status} onChange={handleInputChange}>
-              <option value="Pending">⏳ Pending</option>
-              <option value="Completed">✅ Completed</option>
-              <option value="Rejected">❌ Rejected</option>
-              <option value="In Progress">🔄 In Progress</option>
+            <Form.Label className="modal-field-label">Received (AED)</Form.Label>
+            <Form.Control type="number" step="0.01" min="0" name="serviceCharge" placeholder="0.00" value={formData.serviceCharge} onChange={handleInputChange} />
+          </Form.Group>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Paid (AED)</Form.Label>
+            <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={isDeposit ? '0' : formData.govtFee} onChange={handleInputChange} disabled={formData.govtPayment === 'N/A' || isDeposit} />
+          </Form.Group>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Typing Fee</Form.Label>
+            <Form.Control type="text" readOnly value={`AED ${typingFee.toFixed(2)}`} style={{ color: 'var(--success)', fontWeight: 600 }} />
+          </Form.Group>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Received</Form.Label>
+            <Form.Select name="customerPayment" value={formData.customerPayment} onChange={handleInputChange}>
+              <option value="Cash">Cash</option>
+              <option value="Card">Card</option>
+              <option value="Cheque">Cheque</option>
+              <option value="Account Transfer">Account Transfer</option>
+              <option value="Credit">Credit</option>
+              {!isDeposit && <option value="Advance">Advance</option>}
+            </Form.Select>
+          </Form.Group>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Paid To</Form.Label>
+            <Form.Select name="govtPayment" value={isDeposit ? 'N/A' : formData.govtPayment} onChange={handleInputChange} disabled={isDeposit}>
+              <option value="Cash">Cash</option>
+              <option value="N/A">N/A (None)</option>
+              {paymentCards.map((c) => (<option key={c.id} value={c.bankName}>{c.bankName}</option>))}
             </Form.Select>
           </Form.Group>
         </div>
-      )}
-    </div>
-  )
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginTop: 12 }}>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Govt Entity (e.g. MOHRE, ICA, Immigration)</Form.Label>
+            <Form.Control
+              type="text"
+              name="govtEntity"
+              placeholder="e.g. MOHRE, ICA, Immigration"
+              value={isDeposit ? '' : (formData.govtEntity || '')}
+              onChange={handleInputChange}
+              disabled={formData.govtPayment === 'N/A' || isDeposit}
+            />
+          </Form.Group>
+        </div>
+        {editingApplicationId && (
+          <div style={{ marginTop: 12 }}>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Status</Form.Label>
+              <Form.Select name="status" value={formData.status} onChange={handleInputChange}>
+                <option value="Pending">Pending</option>
+                <option value="Completed">Completed</option>
+                <option value="Rejected">Rejected</option>
+                <option value="In Progress">In Progress</option>
+              </Form.Select>
+            </Form.Group>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (checkingDb) {
     return (
@@ -847,39 +1212,50 @@ function App() {
     }
 
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: '#0d0f17', padding: 20 }}>
-        <div className="login-box" style={{ maxWidth: 450, padding: 30, background: '#1c1f2e', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-          <div className="text-center mb-4">
-            <span style={{ fontSize: '3rem' }}>🔌</span>
-            <h3 className="mt-2 text-white">Database Setup</h3>
-            <p className="text-muted small">Could not connect to the database. Please configure your server settings.</p>
-          </div>
-          {dbSetupError && <Alert variant="danger" style={{ fontSize: '0.85rem' }}>{dbSetupError}</Alert>}
-          <Form onSubmit={handleDbSetupSubmit}>
-            <Form.Group className="mb-3">
-              <Form.Label className="small fw-semibold text-light-gray">Database Server Host IP</Form.Label>
-              <Form.Control type="text" name="host" value={dbConfig.host} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label className="small fw-semibold text-light-gray">Port</Form.Label>
-              <Form.Control type="text" name="port" value={dbConfig.port} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label className="small fw-semibold text-light-gray">Database Name</Form.Label>
-              <Form.Control type="text" name="name" value={dbConfig.name} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label className="small fw-semibold text-light-gray">Username</Form.Label>
-              <Form.Control type="text" name="user" value={dbConfig.user} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
-            </Form.Group>
-            <Form.Group className="mb-4">
-              <Form.Label className="small fw-semibold text-light-gray">Password</Form.Label>
-              <Form.Control type="password" name="password" value={dbConfig.password} onChange={handleDbConfigChange} required className="login-input" style={{ background: '#131520', border: '1px solid var(--border-color)', color: '#fff' }} />
-            </Form.Group>
-            <Button type="submit" className="w-100 py-2 btn-login btn-gradient" disabled={dbSetupSaving} style={{ border: 'none' }}>
-              {dbSetupSaving ? <Spinner animation="border" size="sm" className="me-2" /> : '🔌 Connect & Save'}
-            </Button>
-          </Form>
+      <div className="login-container" style={{ backgroundImage: `url(${wallpaper})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundSize: 'cover' }}>
+        <div className="login-box" style={{ maxWidth: 430 }}>
+          <Card className="login-card shadow-lg">
+            <Card.Body className="p-4">
+              <div className="text-center mb-4">
+                <img src={fcLogo} alt="Logo" style={{ width: 66, height: 66, objectFit: 'contain', display: 'block', margin: '0 auto 16px' }} />
+                <h3 className="login-shop-name" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <SettingsIcon size={24} style={{ color: '#5c061e' }} />
+                  Database Setup
+                </h3>
+                <p className="login-subtitle">Configure Server Connection</p>
+              </div>
+
+              <p className="text-muted text-center small mb-4">Could not connect to the database. Please configure your Postgres server settings.</p>
+              
+              {dbSetupError && <Alert variant="danger" className="small-alert text-center py-2 mb-3">{dbSetupError}</Alert>}
+              
+              <Form onSubmit={handleDbSetupSubmit}>
+                <Form.Group className="mb-3">
+                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Database Server Host IP</Form.Label>
+                  <Form.Control type="text" name="host" value={dbConfig.host} onChange={handleDbConfigChange} required className="login-input" />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Port</Form.Label>
+                  <Form.Control type="text" name="port" value={dbConfig.port} onChange={handleDbConfigChange} required className="login-input" />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Database Name</Form.Label>
+                  <Form.Control type="text" name="name" value={dbConfig.name} onChange={handleDbConfigChange} required className="login-input" />
+                </Form.Group>
+                <Form.Group className="mb-3">
+                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Username</Form.Label>
+                  <Form.Control type="text" name="user" value={dbConfig.user} onChange={handleDbConfigChange} required className="login-input" />
+                </Form.Group>
+                <Form.Group className="mb-4">
+                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Password</Form.Label>
+                  <Form.Control type="password" name="password" value={dbConfig.password} onChange={handleDbConfigChange} required className="login-input" />
+                </Form.Group>
+                <Button type="submit" className="w-100 py-2 btn-login" disabled={dbSetupSaving}>
+                  {dbSetupSaving ? <Spinner animation="border" size="sm" className="me-2" /> : <><SettingsIcon size={16} className="me-2" />Connect & Save</>}
+                </Button>
+              </Form>
+            </Card.Body>
+          </Card>
         </div>
       </div>
     )
@@ -991,6 +1367,17 @@ function App() {
                   <Form.Group className="mb-3">
                     <Form.Label>Customer Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
                     <Form.Control type="text" name="customerName" placeholder="Full name" value={formData.customerName} onChange={handleInputChange} autoFocus />
+                    {(() => {
+                      const matchedInd = individuals.find(ind => ind.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                      if (matchedInd) {
+                        return (
+                          <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                            <SalesIcon size={14} /> Advance Balance: AED {(matchedInd.advanceBalance || 0).toFixed(2)}
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </Form.Group>
                   <Form.Group className="mb-3">
                     <Form.Label>Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
@@ -998,14 +1385,16 @@ function App() {
                   </Form.Group>
                 </div>
                 <Form.Group className="mb-3">
-                  <Form.Label>Service <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
-                  <Form.Select name="serviceId" value={formData.serviceId} onChange={handleInputChange}>
-                    <option value="">Select a service...</option>
-                    {services.map((svc) => (
-                      <option key={svc.id} value={svc.id}>{svc.name} — AED {svc.price.toFixed(2)} ({svc.category?.name})</option>
-                    ))}
-                  </Form.Select>
+                  <Form.Check
+                    type="checkbox"
+                    id="save-to-individual-dir-check"
+                    label="Add this customer to the Individual Directory"
+                    checked={saveToDirectory}
+                    onChange={(e) => setSaveToDirectory(e.target.checked)}
+                    style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}
+                  />
                 </Form.Group>
+                {renderCategoryAndServiceSection()}
                 {renderPaymentSection()}
               </>
             )}
@@ -1027,6 +1416,17 @@ function App() {
                       {showAddCompany ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
                     </button>
                   </div>
+                  {(() => {
+                    const matchedComp = companies.find(c => String(c.id) === formData.companyId)
+                    if (matchedComp) {
+                      return (
+                        <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                          <SalesIcon size={14} /> Advance Balance: AED {(matchedComp.advanceBalance || 0).toFixed(2)}
+                        </div>
+                      )
+                    }
+                    return null
+                  })()}
                 </Form.Group>
 
                 {showAddCompany && (
@@ -1056,15 +1456,7 @@ function App() {
                   </Form.Group>
                 </div>
 
-                <Form.Group className="mb-3">
-                  <Form.Label>Service <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
-                  <Form.Select name="serviceId" value={formData.serviceId} onChange={handleInputChange}>
-                    <option value="">Select a service...</option>
-                    {services.map((svc) => (
-                      <option key={svc.id} value={svc.id}>{svc.name} — AED {svc.price.toFixed(2)} ({svc.category?.name})</option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
+                {renderCategoryAndServiceSection()}
                 {renderPaymentSection()}
               </>
             )}

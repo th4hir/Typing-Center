@@ -11,13 +11,26 @@ import {
   VisaIcon,
   FolderIcon,
   BackIcon,
-  SaveIcon
+  SaveIcon,
+  SalesIcon,
+  PhoneIcon,
+  ApplicationIcon
 } from './Icons'
 
-export default function IndividualManagement() {
+export default function IndividualManagement({ initialIndividualId, onClearInitialId }) {
   // Navigation & Individual Selection
   const [individuals, setIndividuals] = useState([])
   const [selectedIndividual, setSelectedIndividual] = useState(null)
+
+  // Handle initial selected individual from Dashboard link
+  useEffect(() => {
+    if (initialIndividualId && individuals.length > 0) {
+      const found = individuals.find(ind => ind.id === parseInt(initialIndividualId, 10))
+      if (found) {
+        setSelectedIndividual(found)
+      }
+    }
+  }, [initialIndividualId, individuals])
 
   // Lists & Loaders
   const [loadingIndividuals, setLoadingIndividuals] = useState(true)
@@ -35,12 +48,23 @@ export default function IndividualManagement() {
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [newCategoryInput, setNewCategoryInput] = useState('')
 
+  // Applications Setup
+  const [applications, setApplications] = useState([])
+  const [loadingApps, setLoadingApps] = useState(false)
+
   // Individual Modals
   const [showIndividualModal, setShowIndividualModal] = useState(false)
   const [editingIndividual, setEditingIndividual] = useState(null)
   const [individualNameInput, setIndividualNameInput] = useState('')
   const [individualPhoneInput, setIndividualPhoneInput] = useState('')
   const [savingIndividual, setSavingIndividual] = useState(false)
+
+  // Advance Payment Modal
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false)
+  const [advanceAmountInput, setAdvanceAmountInput] = useState('')
+  const [adjustingAdvance, setAdjustingAdvance] = useState(false)
+  const [paymentCards, setPaymentCards] = useState([])
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash')
 
   // Record Modals (Visa, Health Insurance, Emirates ID, etc.)
   const [showRecordModal, setShowRecordModal] = useState(false)
@@ -134,15 +158,47 @@ export default function IndividualManagement() {
     }
   }, [])
 
+  const loadPaymentCards = useCallback(async () => {
+    try {
+      const res = await window.api.fetchPaymentCards()
+      if (res.success) {
+        setPaymentCards(res.data.filter(c => c.isActive))
+      }
+    } catch (err) {
+      console.error('Failed to load payment cards:', err)
+    }
+  }, [])
+
   useEffect(() => {
     loadIndividuals()
-  }, [loadIndividuals])
+    loadPaymentCards()
+  }, [loadIndividuals, loadPaymentCards])
+
+  const loadApplications = useCallback(async () => {
+    setLoadingApps(true)
+    try {
+      const res = await window.api.fetchApplications()
+      if (res.success) {
+        setApplications(res.data)
+      }
+    } catch (err) {
+      console.error('Failed to load applications:', err)
+    } finally {
+      setLoadingApps(false)
+    }
+  }, [])
+
+  const filteredApps = useMemo(() => {
+    if (!selectedIndividual) return []
+    return applications.filter(a => a.customerType === 'Individual' && a.customerName === selectedIndividual.name)
+  }, [applications, selectedIndividual])
 
   useEffect(() => {
     if (selectedIndividual) {
       loadRecords(selectedIndividual.id)
+      loadApplications()
     }
-  }, [selectedIndividual, loadRecords])
+  }, [selectedIndividual, loadRecords, loadApplications])
 
   // Add or Edit Individual
   const handleOpenIndividualModal = (individual = null) => {
@@ -211,6 +267,82 @@ export default function IndividualManagement() {
       }
     } catch (err) {
       alert(err.message)
+    }
+  }
+
+  // Manage Advance Balance
+  const handleOpenAdvanceModal = () => {
+    setAdvanceAmountInput('')
+    setSelectedPaymentMethod('Cash')
+    setShowAdvanceModal(true)
+  }
+
+  const handleAdjustAdvance = async (e) => {
+    e.preventDefault()
+    if (!selectedIndividual) return
+    const amt = parseFloat(advanceAmountInput)
+    if (isNaN(amt) || amt <= 0) {
+      alert('Please enter a valid positive amount.')
+      return
+    }
+
+    try {
+      setAdjustingAdvance(true)
+      
+      const depositServiceRes = await window.api.getAdvanceDepositService()
+      if (!depositServiceRes.success || !depositServiceRes.data) {
+        alert('Failed to retrieve Advance Deposit service: ' + (depositServiceRes.error || 'Unknown error'))
+        setAdjustingAdvance(false)
+        return
+      }
+      const depositService = depositServiceRes.data
+
+      let staffUsername = 'System'
+      try {
+        const storedUser = localStorage.getItem('currentUser')
+        if (storedUser) {
+          const userObj = JSON.parse(storedUser)
+          if (userObj && userObj.username) {
+            staffUsername = userObj.username
+          }
+        }
+      } catch (err) {
+        console.error('Failed to parse current user:', err)
+      }
+
+      const res = await window.api.createApplication({
+        customerName: selectedIndividual.name,
+        phone: selectedIndividual.phone || '',
+        emiratesId: '',
+        customerType: 'Individual',
+        serviceId: depositService.id,
+        serviceCharge: amt,
+        customerPayment: selectedPaymentMethod,
+        govtFee: 0,
+        govtPayment: 'N/A',
+        govtEntity: '',
+        typingFee: 0,
+        status: 'Completed',
+        createdBy: staffUsername
+      })
+
+      if (res.success) {
+        // Reload individual list
+        const updatedRes = await window.api.fetchIndividuals()
+        if (updatedRes.success) {
+          setIndividuals(updatedRes.data)
+          // Update selected individual to show new balance
+          const found = updatedRes.data.find(i => i.id === selectedIndividual.id)
+          if (found) setSelectedIndividual(found)
+        }
+        setShowAdvanceModal(false)
+      } else {
+        alert(res.error || 'Failed to adjust advance')
+      }
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setAdjustingAdvance(false)
     }
   }
 
@@ -404,6 +536,7 @@ export default function IndividualManagement() {
                     <tr>
                       <th>Client Name</th>
                       <th>Phone Number</th>
+                      <th>Advance Balance</th>
                       <th style={{ textAlign: 'center', width: 330 }}>Actions</th>
                     </tr>
                   </thead>
@@ -420,6 +553,9 @@ export default function IndividualManagement() {
                         </td>
                         <td style={{ verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
                           {ind.phone || '—'}
+                        </td>
+                        <td style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)' }}>
+                          AED {(ind.advanceBalance || 0).toFixed(2)}
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
@@ -449,19 +585,27 @@ export default function IndividualManagement() {
         <>
           <div className="page-header">
             <div className="page-header-left">
-              <a href="#" className="back-link" onClick={(e) => { e.preventDefault(); setSelectedIndividual(null); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', textDecoration: 'none', marginBottom: 10, fontSize: '0.9rem', fontWeight: 600 }}>
+              <a href="#" className="back-link" onClick={(e) => { e.preventDefault(); setSelectedIndividual(null); if (onClearInitialId) onClearInitialId(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', textDecoration: 'none', marginBottom: 10, fontSize: '0.9rem', fontWeight: 600 }}>
                 <BackIcon size={14} /> Back to Directory
               </a>
               <h1 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ color: 'var(--accent-primary)', display: 'inline-flex' }}><IndividualIcon size={24} /></span> {selectedIndividual.name}
               </h1>
-              <p>Manage visa files, health insurance, Emirates ID cards, and other details for this client. {selectedIndividual.phone && `📞 ${selectedIndividual.phone}`}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <span className="badge bg-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.95rem', padding: '6px 12px', borderRadius: '6px', fontWeight: 600 }}>
+                  <SalesIcon size={16} /> Advance Balance: AED {(selectedIndividual.advanceBalance || 0).toFixed(2)}
+                </span>
+                <Button variant="outline-success" size="sm" className="py-1 px-2 fw-bold d-inline-flex align-items-center gap-1" onClick={handleOpenAdvanceModal} style={{ fontSize: '0.82rem' }}>
+                  <PlusIcon size={14} /> Receive Advance
+                </Button>
+              </div>
+              <p>Manage visa files, health insurance, Emirates ID cards, and other details for this client. {selectedIndividual.phone && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8 }}><PhoneIcon size={14} className="text-muted" />{selectedIndividual.phone}</span>}</p>
             </div>
             <div className="page-header-actions" style={{ display: 'flex', gap: 10, alignSelf: 'flex-end' }}>
               <button className="btn-outline-subtle" onClick={() => handleOpenIndividualModal(selectedIndividual)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EditIcon size={14} /> Edit
               </button>
-              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }} disabled={selectedCategory === 'Applications'}>
                 <PlusIcon size={14} /> Add {selectedCategory}
               </button>
             </div>
@@ -483,9 +627,21 @@ export default function IndividualManagement() {
                       onClick={() => setSelectedCategory(cat)}
                     >
                       <span style={{ display: 'inline-flex', alignItems: 'center' }}>{getCategoryIcon(cat)}</span>
-                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>{cat}</span>
+                      <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1, textAlign: 'left' }}>{cat}</span>
                     </button>
                   ))}
+
+                  <hr style={{ margin: '8px 0', borderColor: 'var(--border-color)' }} />
+
+                  {/* Applications History Item */}
+                  <button
+                    type="button"
+                    className={`category-item-btn ${selectedCategory === 'Applications' ? 'active' : ''}`}
+                    onClick={() => setSelectedCategory('Applications')}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}><ApplicationIcon size={16} className="me-1" /></span>
+                    <span style={{ flex: 1, textAlign: 'left' }}>Applications History</span>
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -498,83 +654,146 @@ export default function IndividualManagement() {
               </div>
             </div>
 
-            {/* Right Pane: Records list for selected category */}
-            <div className="company-records-pane">
-              <div className="grid-container" style={{ marginTop: 0 }}>
-                <div className="grid-toolbar">
-                  <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
-                    <span style={{ display: 'inline-flex', marginRight: 8 }}>{getCategoryIcon(selectedCategory)}</span>
-                    <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{selectedCategory} Entries</h3>
-                    <span className="record-count">{filteredRecords.length} records</span>
+            {/* Right Pane: Records list for selected category OR Applications History */}
+            {selectedCategory === 'Applications' ? (
+              <div className="company-records-pane">
+                <div className="grid-container" style={{ marginTop: 0 }}>
+                  <div className="grid-toolbar">
+                    <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', marginRight: 8 }}><ApplicationIcon size={16} /></span>
+                      <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>Applications History</h3>
+                      <span className="record-count">{filteredApps.length} transactions</span>
+                    </div>
+                    <div className="grid-toolbar-right">
+                      <button className="btn-outline-subtle" onClick={loadApplications} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <RefreshIcon size={14} /> Refresh
+                      </button>
+                    </div>
                   </div>
-                  <div className="grid-toolbar-right">
-                    <button className="btn-outline-subtle" onClick={() => loadRecords(selectedIndividual.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <RefreshIcon size={14} /> Refresh
-                    </button>
-                  </div>
-                </div>
 
-                <div className="admin-table-wrap">
-                  {loadingRecords ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
-                      <Spinner animation="border" variant="light" size="sm" />
-                      <span style={{ color: 'var(--text-secondary)' }}>Loading documents...</span>
-                    </div>
-                  ) : filteredRecords.length === 0 ? (
-                    <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                      📄 No records added in <strong>{selectedCategory}</strong> yet. Click "+ Add {selectedCategory}" to insert your first record.
-                    </div>
-                  ) : (
-                    <Table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>{getHolderFieldLabel()}</th>
-                          <th>{getDocNumberLabel()}</th>
-                          <th>{getDocTypeLabel()}</th>
-                          <th style={{ width: 140 }}>Issue Date</th>
-                          <th style={{ width: 140 }}>Expiry Date</th>
-                          <th style={{ width: 150 }}>Status / Days</th>
-                          <th>Notes</th>
-                          <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRecords.map((r) => {
-                          const expiryInfo = getDaysLeftInfo(r.expiryDate)
-                          return (
-                            <tr key={r.id}>
-                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.holderName || '—'}</td>
-                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
-                              <td>{r.documentType || '—'}</td>
-                              <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                              <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                              <td>
-                                <div className="d-flex flex-column">
-                                  <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
-                                </div>
-                              </td>
-                              <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
-                                {r.notes || '—'}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                                  <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
-                                    <EditIcon size={14} />
-                                  </Button>
-                                  <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
-                                    <TrashIcon size={14} />
-                                  </Button>
-                                </div>
+                  <div className="admin-table-wrap">
+                    {loadingApps ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
+                        <Spinner animation="border" variant="light" size="sm" />
+                        <span style={{ color: 'var(--text-secondary)' }}>Loading transactions...</span>
+                      </div>
+                    ) : filteredApps.length === 0 ? (
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
+                        📄 No applications recorded for this client yet.
+                      </div>
+                    ) : (
+                      <Table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 100 }}>ID</th>
+                            <th>Service</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Received (AED)</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Paid (AED)</th>
+                            <th style={{ textAlign: 'right', width: 140 }}>Profit (AED)</th>
+                            <th>Paid By</th>
+                            <th>Date</th>
+                            <th style={{ textAlign: 'center', width: 120 }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredApps.map((a) => (
+                            <tr key={a.id}>
+                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
+                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                              <td>{a.customerPayment}</td>
+                              <td>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
                               </td>
                             </tr>
-                          )
-                        })}
-                      </tbody>
-                    </Table>
-                  )}
+                          ))}
+                        </tbody>
+                      </Table>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="company-records-pane">
+                <div className="grid-container" style={{ marginTop: 0 }}>
+                  <div className="grid-toolbar">
+                    <div className="grid-toolbar-left" style={{ display: 'flex', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', marginRight: 8 }}>{getCategoryIcon(selectedCategory)}</span>
+                      <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{selectedCategory} Entries</h3>
+                      <span className="record-count">{filteredRecords.length} records</span>
+                    </div>
+                    <div className="grid-toolbar-right">
+                      <button className="btn-outline-subtle" onClick={() => loadRecords(selectedIndividual.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <RefreshIcon size={14} /> Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="admin-table-wrap">
+                    {loadingRecords ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 10 }}>
+                        <Spinner animation="border" variant="light" size="sm" />
+                        <span style={{ color: 'var(--text-secondary)' }}>Loading documents...</span>
+                      </div>
+                    ) : filteredRecords.length === 0 ? (
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
+                        📄 No records added in <strong>{selectedCategory}</strong> yet. Click "+ Add {selectedCategory}" to insert your first record.
+                      </div>
+                    ) : (
+                      <Table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>{getHolderFieldLabel()}</th>
+                            <th>{getDocNumberLabel()}</th>
+                            <th>{getDocTypeLabel()}</th>
+                            <th style={{ width: 140 }}>Issue Date</th>
+                            <th style={{ width: 140 }}>Expiry Date</th>
+                            <th style={{ width: 150 }}>Status / Days</th>
+                            <th>Notes</th>
+                            <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredRecords.map((r) => {
+                            const expiryInfo = getDaysLeftInfo(r.expiryDate)
+                            return (
+                              <tr key={r.id}>
+                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.holderName || '—'}</td>
+                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
+                                <td>{r.documentType || '—'}</td>
+                                <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                <td>
+                                  <div className="d-flex flex-column">
+                                    <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
+                                  </div>
+                                </td>
+                                <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
+                                  {r.notes || '—'}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                                    <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
+                                      <EditIcon size={14} />
+                                    </Button>
+                                    <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
+                                      <TrashIcon size={14} />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </Table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -753,6 +972,57 @@ export default function IndividualManagement() {
             <Button variant="outline-secondary" onClick={() => setShowCategoryModal(false)}>Cancel</Button>
             <Button type="submit" className="btn-primary-glow" disabled={!newCategoryInput.trim()} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
               <SaveIcon size={14} /> Save Category
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+      {/* ─── Receive Advance Modal ─── */}
+      <Modal show={showAdvanceModal} onHide={() => setShowAdvanceModal(false)} centered contentClassName="modal-dark">
+        <Modal.Header closeButton closeVariant="white">
+          <Modal.Title>Receive Advance — {selectedIndividual?.name}</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleAdjustAdvance}>
+          <Modal.Body>
+            <Form.Group className="mb-3">
+              <Form.Label>Current Balance</Form.Label>
+              <Form.Control type="text" readOnly value={`AED ${(selectedIndividual?.advanceBalance || 0).toFixed(2)}`} style={{ background: '#1c1f2e', color: '#fff', border: '1px solid var(--border-color)', fontWeight: 600 }} />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Amount to Add (AED)</Form.Label>
+              <Form.Control
+                type="number"
+                step="0.01"
+                placeholder="e.g. 10000"
+                value={advanceAmountInput}
+                onChange={(e) => setAdvanceAmountInput(e.target.value)}
+                required
+                autoFocus
+                min="0.01"
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Payment Method</Form.Label>
+              <Form.Select
+                value={selectedPaymentMethod}
+                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+              >
+                <option value="Cash">Cash</option>
+                <option value="Card">Card (General)</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Account Transfer">Account Transfer</option>
+                {paymentCards.map((c) => (
+                  <option key={c.id} value={c.bankName}>
+                    {c.bankName}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="outline-secondary" onClick={() => setShowAdvanceModal(false)}>Cancel</Button>
+            <Button type="submit" className="btn-success-glow" disabled={adjustingAdvance || !advanceAmountInput} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {adjustingAdvance ? <Spinner animation="border" size="sm" /> : 'Apply Deposit'}
             </Button>
           </Modal.Footer>
         </Form>

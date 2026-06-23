@@ -128,6 +128,26 @@ ipcMain.handle('create-service', async (_event, data) => {
   }
 })
 
+ipcMain.handle('get-advance-deposit-service', async () => {
+  try {
+    const systemCategory = await prisma.category.findUnique({ where: { name: 'System' } })
+    if (!systemCategory) return { success: false, error: 'System category not found' }
+
+    const service = await prisma.service.findFirst({
+      where: {
+        name: 'Advance Deposit',
+        categoryId: systemCategory.id
+      },
+      include: { category: true }
+    })
+    if (!service) return { success: false, error: 'Advance Deposit service not found' }
+
+    return { success: true, data: service }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 // ═══════════════════════════════════════════════════════════════
 //  PAYMENT CARDS
 // ═══════════════════════════════════════════════════════════════
@@ -204,6 +224,18 @@ ipcMain.handle('delete-company', async (_event, { id }) => {
       where: { id }
     })
     return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('adjust-company-advance', async (_event, { id, amount }) => {
+  try {
+    const company = await prisma.company.update({
+      where: { id: parseInt(id, 10) },
+      data: { advanceBalance: { increment: parseFloat(amount) || 0 } }
+    })
+    return { success: true, data: company }
   } catch (error) {
     return { success: false, error: error.message }
   }
@@ -327,6 +359,18 @@ ipcMain.handle('delete-individual', async (_event, { id }) => {
   }
 })
 
+ipcMain.handle('adjust-individual-advance', async (_event, { id, amount }) => {
+  try {
+    const individual = await prisma.individual.update({
+      where: { id: parseInt(id, 10) },
+      data: { advanceBalance: { increment: parseFloat(amount) || 0 } }
+    })
+    return { success: true, data: individual }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 ipcMain.handle('get-individual-records', async (_event, { individualId }) => {
   try {
     const records = await prisma.individualRecord.findMany({
@@ -408,8 +452,58 @@ ipcMain.handle('get-applications', async () => {
   }
 })
 
+async function adjustCustomerAdvanceBalance(customerType, identifier, serviceCharge, operation, phone = '') {
+  const amount = parseFloat(serviceCharge) || 0
+  if (amount <= 0 || !identifier) return
+
+  try {
+    if (customerType === 'Company') {
+      const comp = await prisma.company.findUnique({ where: { name: identifier } })
+      if (comp) {
+        await prisma.company.update({
+          where: { id: comp.id },
+          data: {
+            advanceBalance: operation === 'decrement'
+              ? { decrement: amount }
+              : { increment: amount }
+          }
+        })
+      }
+    } else {
+      // Individual
+      let ind = await prisma.individual.findUnique({ where: { name: identifier } })
+      if (!ind) {
+        ind = await prisma.individual.create({
+          data: {
+            name: identifier,
+            phone: phone || ''
+          }
+        })
+      }
+      await prisma.individual.update({
+        where: { id: ind.id },
+        data: {
+          advanceBalance: operation === 'decrement'
+            ? { decrement: amount }
+            : { increment: amount }
+        }
+      })
+    }
+  } catch (err) {
+    console.error('Failed to adjust customer advance balance:', err)
+  }
+}
+
 ipcMain.handle('create-application', async (_event, data) => {
   try {
+    const service = await prisma.service.findUnique({
+      where: { id: data.serviceId },
+      include: { category: true }
+    })
+    const isAdvanceDeposit = service?.name === 'Advance Deposit' && service?.category?.name === 'System'
+
+    const typingFee = isAdvanceDeposit ? 0 : (data.typingFee || 0)
+
     const application = await prisma.application.create({
       data: {
         customerName: data.customerName,
@@ -419,14 +513,23 @@ ipcMain.handle('create-application', async (_event, data) => {
         serviceId: data.serviceId,
         serviceCharge: data.serviceCharge || 0,
         customerPayment: data.customerPayment || 'Cash',
-        govtFee: data.govtFee || 0,
-        govtPayment: data.govtPayment || 'Cash',
-        typingFee: data.typingFee || 0,
+        govtFee: isAdvanceDeposit ? 0 : (data.govtFee || 0),
+        govtPayment: isAdvanceDeposit ? 'N/A' : (data.govtPayment || 'Cash'),
+        govtEntity: isAdvanceDeposit ? '' : (data.govtEntity || ''),
+        typingFee: typingFee,
         status: data.status || 'Pending',
         createdBy: data.createdBy || ''
       },
       include: { service: { include: { category: true } } }
     })
+
+    const identifier = data.customerType === 'Company' ? data.emiratesId : data.customerName
+    if (isAdvanceDeposit) {
+      await adjustCustomerAdvanceBalance(data.customerType, identifier, data.serviceCharge, 'increment', data.phone)
+    } else if (data.customerPayment === 'Advance') {
+      await adjustCustomerAdvanceBalance(data.customerType, identifier, data.serviceCharge, 'decrement', data.phone)
+    }
+
     return { success: true, data: application }
   } catch (error) {
     return { success: false, error: error.message }
@@ -665,6 +768,18 @@ ipcMain.handle('delete-service', async (_event, { id }) => {
 
 ipcMain.handle('update-application', async (_event, data) => {
   try {
+    const oldApp = await prisma.application.findUnique({
+      where: { id: data.id },
+      include: { service: { include: { category: true } } }
+    })
+
+    const service = await prisma.service.findUnique({
+      where: { id: data.serviceId },
+      include: { category: true }
+    })
+    const isAdvanceDeposit = service?.name === 'Advance Deposit' && service?.category?.name === 'System'
+    const typingFee = isAdvanceDeposit ? 0 : (data.typingFee || 0)
+
     const application = await prisma.application.update({
       where: { id: data.id },
       data: {
@@ -675,13 +790,35 @@ ipcMain.handle('update-application', async (_event, data) => {
         serviceId: data.serviceId,
         serviceCharge: data.serviceCharge || 0,
         customerPayment: data.customerPayment || 'Cash',
-        govtFee: data.govtFee || 0,
-        govtPayment: data.govtPayment || 'Cash',
-        typingFee: data.typingFee || 0,
+        govtFee: isAdvanceDeposit ? 0 : (data.govtFee || 0),
+        govtPayment: isAdvanceDeposit ? 'N/A' : (data.govtPayment || 'Cash'),
+        govtEntity: isAdvanceDeposit ? '' : (data.govtEntity || ''),
+        typingFee: typingFee,
         status: data.status || 'Pending'
       },
       include: { service: { include: { category: true } } }
     })
+
+    if (oldApp) {
+      // 1. Revert old balance effect
+      const oldIsAdvanceDeposit = oldApp.service?.name === 'Advance Deposit' && oldApp.service?.category?.name === 'System'
+      const oldIdentifier = oldApp.customerType === 'Company' ? oldApp.emiratesId : oldApp.customerName
+
+      if (oldIsAdvanceDeposit) {
+        await adjustCustomerAdvanceBalance(oldApp.customerType, oldIdentifier, oldApp.serviceCharge, 'decrement', oldApp.phone)
+      } else if (oldApp.customerPayment === 'Advance') {
+        await adjustCustomerAdvanceBalance(oldApp.customerType, oldIdentifier, oldApp.serviceCharge, 'increment', oldApp.phone)
+      }
+
+      // 2. Apply new balance effect
+      const newIdentifier = application.customerType === 'Company' ? application.emiratesId : application.customerName
+      if (isAdvanceDeposit) {
+        await adjustCustomerAdvanceBalance(application.customerType, newIdentifier, application.serviceCharge, 'increment', data.phone)
+      } else if (application.customerPayment === 'Advance') {
+        await adjustCustomerAdvanceBalance(application.customerType, newIdentifier, application.serviceCharge, 'decrement', data.phone)
+      }
+    }
+
     return { success: true, data: application }
   } catch (error) {
     return { success: false, error: error.message }
@@ -690,9 +827,26 @@ ipcMain.handle('update-application', async (_event, data) => {
 
 ipcMain.handle('delete-application', async (_event, { id }) => {
   try {
+    const oldApp = await prisma.application.findUnique({
+      where: { id },
+      include: { service: { include: { category: true } } }
+    })
+
     await prisma.application.delete({
       where: { id }
     })
+
+    if (oldApp) {
+      const oldIsAdvanceDeposit = oldApp.service?.name === 'Advance Deposit' && oldApp.service?.category?.name === 'System'
+      const oldIdentifier = oldApp.customerType === 'Company' ? oldApp.emiratesId : oldApp.customerName
+
+      if (oldIsAdvanceDeposit) {
+        await adjustCustomerAdvanceBalance(oldApp.customerType, oldIdentifier, oldApp.serviceCharge, 'decrement', oldApp.phone)
+      } else if (oldApp.customerPayment === 'Advance') {
+        await adjustCustomerAdvanceBalance(oldApp.customerType, oldIdentifier, oldApp.serviceCharge, 'increment', oldApp.phone)
+      }
+    }
+
     return { success: true }
   } catch (error) {
     return { success: false, error: error.message }
@@ -955,6 +1109,82 @@ ipcMain.handle('get-monthly-report', async (_event, { year, month }) => {
   }
 })
 
+ipcMain.handle('get-expiring-documents', async () => {
+  try {
+    const today = new Date()
+    const thirtyDaysFromNow = new Date()
+    thirtyDaysFromNow.setDate(today.getDate() + 30)
+
+    // Reset hours for fair date comparison
+    today.setHours(0, 0, 0, 0)
+    
+    // Fetch CompanyRecords with parent Company name
+    const companyRecords = await prisma.companyRecord.findMany({
+      where: {
+        expiryDate: {
+          lte: thirtyDaysFromNow
+        }
+      },
+      include: {
+        company: true
+      }
+    })
+
+    // Fetch IndividualRecords with parent Individual name
+    const individualRecords = await prisma.individualRecord.findMany({
+      where: {
+        expiryDate: {
+          lte: thirtyDaysFromNow
+        }
+      },
+      include: {
+        individual: true
+      }
+    })
+
+    // Map company records
+    const companyMapped = companyRecords.map(r => ({
+      id: `company-${r.id}`,
+      dbId: r.id,
+      clientName: r.employeeName || 'Trade License',
+      parentName: r.company.name,
+      parentId: r.companyId,
+      type: 'Company',
+      category: r.category,
+      documentNumber: r.documentNumber,
+      expiryDate: r.expiryDate,
+      status: r.status,
+      notes: r.notes
+    }))
+
+    // Map individual records
+    const individualMapped = individualRecords.map(r => ({
+      id: `individual-${r.id}`,
+      dbId: r.id,
+      clientName: r.holderName || 'Main Holder',
+      parentName: r.individual.name,
+      parentId: r.individualId,
+      type: 'Individual',
+      category: r.category,
+      documentNumber: r.documentNumber,
+      expiryDate: r.expiryDate,
+      status: r.status,
+      notes: r.notes
+    }))
+
+    // Combine and sort by expiryDate ascending
+    const combined = [...companyMapped, ...individualMapped].sort((a, b) => {
+      if (!a.expiryDate) return 1
+      if (!b.expiryDate) return -1
+      return new Date(a.expiryDate) - new Date(b.expiryDate)
+    })
+
+    return { success: true, data: combined }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 // ═══════════════════════════════════════════════════════════════
 //  WINDOW CREATION
 // ═══════════════════════════════════════════════════════════════
@@ -1013,10 +1243,44 @@ async function seedDefaultAdmin() {
   }
 }
 
+async function ensureAdvanceDepositService() {
+  try {
+    let systemCategory = await prisma.category.findUnique({
+      where: { name: 'System' }
+    })
+    if (!systemCategory) {
+      systemCategory = await prisma.category.create({
+        data: { name: 'System' }
+      })
+      console.log('Created System category')
+    }
+
+    let advanceService = await prisma.service.findFirst({
+      where: {
+        name: 'Advance Deposit',
+        categoryId: systemCategory.id
+      }
+    })
+    if (!advanceService) {
+      advanceService = await prisma.service.create({
+        data: {
+          name: 'Advance Deposit',
+          price: 0,
+          categoryId: systemCategory.id
+        }
+      })
+      console.log('Created Advance Deposit service')
+    }
+  } catch (err) {
+    console.error('Failed to ensure Advance Deposit service:', err)
+  }
+}
+
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.typingcenter')
   app.on('browser-window-created', (_, window) => { optimizer.watchWindowShortcuts(window) })
   await seedDefaultAdmin()
+  await ensureAdvanceDepositService()
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
