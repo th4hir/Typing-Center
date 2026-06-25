@@ -1,8 +1,25 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Spinner, Alert, Table, Form } from 'react-bootstrap'
+import { Spinner, Alert, Table, Form, Dropdown } from 'react-bootstrap'
 import { ApplicationIcon, SalesIcon, CardIcon, SaveIcon, ReportIcon, BillIcon } from './Icons'
+import { useTableColumns } from './useTableColumns'
+import { exportToExcel, exportToPDF } from './exportHelper'
 
 function MonthlyReport() {
+  const appsCols = useTableColumns('monthly_report_apps', ['date', 'customer', 'service', 'charge', 'govtFee', 'profit'], {
+    date: 'Date',
+    customer: 'Customer',
+    service: 'Service',
+    charge: 'Charge',
+    govtFee: 'Paid',
+    profit: 'Profit'
+  })
+
+  const expensesCols = useTableColumns('monthly_report_expenses', ['date', 'description', 'amount'], {
+    date: 'Date',
+    description: 'Description',
+    amount: 'Amount (AED)'
+  })
+
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [data, setData] = useState({ applications: [], expenses: [] })
@@ -29,6 +46,8 @@ function MonthlyReport() {
   useEffect(() => {
     loadReport(selectedYear, selectedMonth)
   }, [selectedYear, selectedMonth, loadReport])
+
+
 
   // Years option range
   const years = useMemo(() => {
@@ -110,6 +129,70 @@ function MonthlyReport() {
     return match ? match.name + ' ' + selectedYear : selectedMonth + '/' + selectedYear
   }, [selectedMonth, selectedYear, months])
 
+  const handleExport = useCallback(async (format) => {
+    let shopConfig = null
+    try {
+      const shopRes = await window.api.getShopConfig()
+      if (shopRes.success) shopConfig = shopRes.data
+    } catch (err) {
+      console.error(err)
+    }
+
+    const entries = [
+      ...(data.applications || []).map(a => ({
+        date: new Date(a.createdAt),
+        category: 'Service',
+        description: a.customerName,
+        service: a.service?.name || '—',
+        charge: a.serviceCharge,
+        govtFee: a.govtFee,
+        profit: a.typingFee
+      })),
+      ...(data.expenses || []).map(e => ({
+        date: new Date(e.createdAt),
+        category: 'Expense',
+        description: e.description,
+        service: `Expense (${e.paymentMethod || 'Cash'})`,
+        charge: 0,
+        govtFee: 0,
+        profit: -e.amount
+      }))
+    ].sort((a, b) => a.date - b.date)
+
+    const headers = ['Date', 'Category', 'Customer / Description', 'Service / Method', 'Charge (AED)', 'Govt Fee (AED)', 'Net Profit (AED)']
+    const rows = entries.map(entry => [
+      entry.date.toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      entry.category,
+      entry.description,
+      entry.service,
+      entry.charge > 0 ? entry.charge.toFixed(2) : '—',
+      entry.govtFee > 0 ? entry.govtFee.toFixed(2) : '—',
+      entry.profit.toFixed(2)
+    ])
+
+    const formattedMonth = displayMonth
+    const title = 'Monthly Financial Report'
+    const subtitle = `Month: ${formattedMonth}`
+    const defaultName = `monthly_report_${selectedYear}_${String(selectedMonth).padStart(2, '0')}`
+
+    if (format === 'excel') {
+      const res = await exportToExcel(headers, rows, `${defaultName}.xls`)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    } else {
+      const summaryCards = [
+        { label: 'Gross Sales', value: `AED ${totals.totalSales.toFixed(2)}` },
+        { label: 'Govt Outflow', value: `AED ${totals.totalGovt.toFixed(2)}` },
+        { label: 'Gross Profit', value: `AED ${totals.grossProfit.toFixed(2)}` },
+        { label: 'Expenses', value: `AED ${totals.totalExpenses.toFixed(2)}` },
+        { label: 'Net Profit', value: `AED ${totals.netProfit.toFixed(2)}`, color: totals.netProfit >= 0 ? '#10b981' : '#ef4444' }
+      ]
+      const res = await exportToPDF(shopConfig, title, subtitle, headers, rows, `${defaultName}.pdf`, summaryCards)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    }
+  }, [data, selectedYear, selectedMonth, displayMonth, totals])
+
   return (
     <div className="monthly-report">
       {/* Page Header */}
@@ -121,6 +204,19 @@ function MonthlyReport() {
           <p>{displayMonth}</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 10 }}>
+          <Dropdown align="end" className="d-inline">
+            <Dropdown.Toggle as="button" className="btn-outline-subtle" id="btn-export-monthly" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Export
+            </Dropdown.Toggle>
+            <Dropdown.Menu className="dropdown-menu-dark">
+              <Dropdown.Item onClick={() => handleExport('excel')}>
+                Export Excel (.xls)
+              </Dropdown.Item>
+              <Dropdown.Item onClick={() => handleExport('pdf')}>
+                Export PDF (.pdf)
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown>
           <Form.Select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
@@ -243,12 +339,35 @@ function MonthlyReport() {
       <div className="admin-grid" style={{ gridTemplateColumns: '1.2fr 0.8fr' }}>
         {/* Service Applications list */}
         <div className="admin-card">
-          <div className="admin-card-header">
-            <span className="admin-card-icon" style={{ background: 'var(--accent-glow)', color: 'var(--accent-primary)' }}><ApplicationIcon size={18} /></span>
-            <div>
-              <h3>Service Transactions</h3>
-              <span className="admin-card-count">{totals.appCount} records</span>
+          <div className="admin-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span className="admin-card-icon" style={{ background: 'var(--accent-glow)', color: 'var(--accent-primary)' }}><ApplicationIcon size={18} /></span>
+              <div>
+                <h3>Service Transactions</h3>
+                <span className="admin-card-count">{totals.appCount} records</span>
+              </div>
             </div>
+            <Dropdown align="end" className="d-inline">
+              <Dropdown.Toggle as="button" className="btn-outline-subtle py-1 px-2" style={{ fontSize: '0.75rem' }} id="col-selector-dropdown-monthly-apps">
+                Columns
+              </Dropdown.Toggle>
+              <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                  {appsCols.colOrder.map((col) => (
+                    <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={appsCols.colVisible[col]}
+                        onChange={() => appsCols.toggleColumn(col)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      {appsCols.friendlyNames[col]}
+                    </label>
+                  ))}
+                </div>
+              </Dropdown.Menu>
+            </Dropdown>
           </div>
           <div className="admin-table-wrap" style={{ maxHeight: 380 }}>
             {loading ? (
@@ -260,28 +379,67 @@ function MonthlyReport() {
               <Table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Customer</th>
-                    <th>Service</th>
-                    <th style={{ textAlign: 'right' }}>Charge</th>
-                    <th style={{ textAlign: 'right' }}>Paid</th>
-                    <th style={{ textAlign: 'right' }}>Profit</th>
+                    {appsCols.colOrder.map((colId, index) => {
+                      if (!appsCols.colVisible[colId]) return null
+                      let style = { cursor: 'move', userSelect: 'none' }
+                      if (colId === 'charge' || colId === 'govtFee' || colId === 'profit') {
+                        style.textAlign = 'right'
+                      }
+                      return (
+                        <th
+                          key={colId}
+                          draggable
+                          onDragStart={(e) => appsCols.handleDragStart(e, index)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => appsCols.handleDrop(e, index)}
+                          style={style}
+                          title="Drag to rearrange column order"
+                        >
+                          {appsCols.friendlyNames[colId]}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {data.applications?.length === 0 ? (
-                    <tr><td colSpan={6} className="admin-empty">No applications processed in this month</td></tr>
+                    <tr><td colSpan={appsCols.colOrder.filter(c => appsCols.colVisible[c]).length} className="admin-empty">No applications processed in this month</td></tr>
                   ) : (
                     data.applications?.map((a) => (
                       <tr key={a.id}>
-                        <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                          {new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}
-                        </td>
-                        <td className="fw-semibold">{a.customerName}</td>
-                        <td>{a.service?.name || '—'}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                        {appsCols.colOrder.map((colId) => {
+                          if (!appsCols.colVisible[colId]) return null
+                          switch (colId) {
+                            case 'date':
+                              return (
+                                <td key={colId} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                                  {new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}
+                                </td>
+                              )
+                            case 'customer':
+                              return (
+                                <td key={colId} className="fw-semibold">{a.customerName}</td>
+                              )
+                            case 'service':
+                              return (
+                                <td key={colId}>{a.service?.name || '—'}</td>
+                              )
+                            case 'charge':
+                              return (
+                                <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
+                              )
+                            case 'govtFee':
+                              return (
+                                <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                              )
+                            case 'profit':
+                              return (
+                                <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                              )
+                            default:
+                              return null
+                          }
+                        })}
                       </tr>
                     ))
                   )}
@@ -293,12 +451,35 @@ function MonthlyReport() {
 
         {/* Expenses List */}
         <div className="admin-card">
-          <div className="admin-card-header">
-            <span className="admin-card-icon" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}><BillIcon size={18} /></span>
-            <div>
-              <h3>General Expenses List</h3>
-              <span className="admin-card-count">{totals.expCount} entries</span>
+          <div className="admin-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span className="admin-card-icon" style={{ background: 'rgba(239, 68, 68, 0.15)', color: 'var(--danger)' }}><BillIcon size={18} /></span>
+              <div>
+                <h3>General Expenses List</h3>
+                <span className="admin-card-count">{totals.expCount} entries</span>
+              </div>
             </div>
+            <Dropdown align="end" className="d-inline">
+              <Dropdown.Toggle as="button" className="btn-outline-subtle py-1 px-2" style={{ fontSize: '0.75rem' }} id="col-selector-dropdown-monthly-expenses">
+                Columns
+              </Dropdown.Toggle>
+              <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                  {expensesCols.colOrder.map((col) => (
+                    <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={expensesCols.colVisible[col]}
+                        onChange={() => expensesCols.toggleColumn(col)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      {expensesCols.friendlyNames[col]}
+                    </label>
+                  ))}
+                </div>
+              </Dropdown.Menu>
+            </Dropdown>
           </div>
           <div className="admin-table-wrap" style={{ maxHeight: 380 }}>
             {loading ? (
@@ -310,22 +491,55 @@ function MonthlyReport() {
               <Table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th style={{ textAlign: 'right' }}>Amount (AED)</th>
+                    {expensesCols.colOrder.map((colId, index) => {
+                      if (!expensesCols.colVisible[colId]) return null
+                      let style = { cursor: 'move', userSelect: 'none' }
+                      if (colId === 'amount') {
+                        style.textAlign = 'right'
+                      }
+                      return (
+                        <th
+                          key={colId}
+                          draggable
+                          onDragStart={(e) => expensesCols.handleDragStart(e, index)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => expensesCols.handleDrop(e, index)}
+                          style={style}
+                          title="Drag to rearrange column order"
+                        >
+                          {expensesCols.friendlyNames[colId]}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {data.expenses?.length === 0 ? (
-                    <tr><td colSpan={3} className="admin-empty">No shop expenses recorded in this month</td></tr>
+                    <tr><td colSpan={expensesCols.colOrder.filter(c => expensesCols.colVisible[c]).length} className="admin-empty">No shop expenses recorded in this month</td></tr>
                   ) : (
                     data.expenses?.map((e) => (
                       <tr key={e.id}>
-                        <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                          {new Date(e.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}
-                        </td>
-                        <td className="fw-semibold">{e.description}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{e.amount.toFixed(2)}</td>
+                        {expensesCols.colOrder.map((colId) => {
+                          if (!expensesCols.colVisible[colId]) return null
+                          switch (colId) {
+                            case 'date':
+                              return (
+                                <td key={colId} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                                  {new Date(e.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}
+                                </td>
+                              )
+                            case 'description':
+                              return (
+                                <td key={colId} className="fw-semibold">{e.description}</td>
+                              )
+                            case 'amount':
+                              return (
+                                <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{e.amount.toFixed(2)}</td>
+                              )
+                            default:
+                              return null
+                          }
+                        })}
                       </tr>
                     ))
                   )}

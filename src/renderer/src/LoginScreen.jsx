@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Card, Form, Button, Alert, Spinner } from 'react-bootstrap'
-import fcLogo from '../../FC LOGO NEW.png'
+import fcLogo from '../../logo-nobg.png'
 import wallpaper from '../../Wallpaper.png'
 import { MailIcon, KeyIcon, EyeIcon, EyeOffIcon } from './Icons'
 
@@ -54,7 +54,7 @@ export default function LoginScreen({ shopName, onLoginSuccess }) {
 
             <Form onSubmit={handleSubmit}>
               <Form.Group className="mb-3" controlId="loginUsername">
-                <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Email Address</Form.Label>
+                <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Username</Form.Label>
                 <div className="input-group-custom">
                   <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center' }}><MailIcon size={16} /></span>
                   <Form.Control

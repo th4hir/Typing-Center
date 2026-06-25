@@ -18,6 +18,7 @@ model ShopConfig {
 model Category {
   id       Int       @id @default(autoincrement())
   name     String    @unique
+  isTravel Boolean   @default(false)
   services Service[]
 }
 
@@ -32,9 +33,10 @@ model Service {
 
 // Bank cards the typing center uses for payments
 model PaymentCard {
-  id        Int     @id @default(autoincrement())
-  bankName  String  @unique
-  isActive  Boolean @default(true)
+  id         Int     @id @default(autoincrement())
+  bankName   String  @unique
+  isActive   Boolean @default(true)
+  isPersonal Boolean @default(false)
 }
 
 // Companies that use the typing center
@@ -101,11 +103,17 @@ model Application {
   // Money IN — what customer pays us
   serviceCharge   Float    @default(0)
   customerPayment String   @default("Cash")
+  paidAmount      Float    @default(0)
+  balance         Float    @default(0)
+  cardReceiptNet  Float?   @default(0)
+  receivingAccount String?
+  settlementNote   String?  @default("")
 
   // Money OUT — what we pay government/entity
   govtFee         Float    @default(0)
   govtPayment     String   @default("Cash")
   govtEntity      String   @default("")
+  govtPaid        Float    @default(0)
 
   // Our fee (serviceCharge - govtFee)
   typingFee       Float    @default(0)
@@ -127,4 +135,42 @@ model Expense {
   paymentMethod String   @default("Cash")
   createdAt     DateTime @default(now())
 }
+
+model GovtEntity {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+}
+
+model GovtEntityPayment {
+  id            Int      @id @default(autoincrement())
+  entityName    String
+  amount        Float
+  paymentMethod String   @default("Cash")
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+}
+
+model TravelSupplier {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+}
+
+model TravelSupplierPayment {
+  id            Int      @id @default(autoincrement())
+  supplierName  String
+  amount        Float
+  paymentMethod String   @default("Cash")
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+}
+
+model AccountTransfer {
+  id          Int      @id @default(autoincrement())
+  fromAccount String
+  toAccount   String
+  amount      Float
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+}
+
 

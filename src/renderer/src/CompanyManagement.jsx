@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Table, Modal, Button, Form, Spinner, Alert } from 'react-bootstrap'
+import { Table, Modal, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
 import {
   PlusIcon,
   EditIcon,
@@ -16,17 +16,49 @@ import {
   ApplicationIcon,
   CardIcon
 } from './Icons'
+import { useTableColumns } from './useTableColumns'
 
-export default function CompanyManagement({ initialCompanyId, onClearInitialId }) {
+export default function CompanyManagement({ initialCompanyId, onClearInitialId, onNewApplication }) {
+  const companiesCols = useTableColumns('company_list', ['name', 'advance', 'due', 'actions'], {
+    name: 'Company Name',
+    advance: 'Advance Balance',
+    due: 'Outstanding Due',
+    actions: 'Actions'
+  })
+
+  const appsCols = useTableColumns('company_apps', ['id', 'service', 'govtFee', 'typingFee', 'serviceCharge', 'paidAmount', 'balance', 'paidBy', 'date', 'status'], {
+    id: 'ID',
+    service: 'Service',
+    govtFee: 'Govt Fee',
+    typingFee: 'Typing Fee',
+    serviceCharge: 'Customer Fee',
+    paidAmount: 'Paid Amount',
+    balance: 'Balance',
+    paidBy: 'Paid By',
+    date: 'Date',
+    status: 'Status'
+  })
+
+  const recordsCols = useTableColumns('company_records', ['employeeName', 'documentNumber', 'documentType', 'issueDate', 'expiryDate', 'status', 'notes', 'actions'], {
+    employeeName: 'Employee Name',
+    documentNumber: 'Document Number',
+    documentType: 'Document Type',
+    issueDate: 'Issue Date',
+    expiryDate: 'Expiry Date',
+    status: 'Status / Days',
+    notes: 'Notes',
+    actions: 'Actions'
+  })
+
   // Navigation & Company Selection
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
 
-  // Handle initial selected company from Dashboard link
   useEffect(() => {
     if (initialCompanyId && companies.length > 0) {
       const found = companies.find(c => c.id === parseInt(initialCompanyId, 10))
       if (found) {
+        setSelectedCategory('Applications')
         setSelectedCompany(found)
       }
     }
@@ -41,14 +73,17 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
 
   // Search & Filter
   const [companySearch, setCompanySearch] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('Trade License') // Default tab
+  const [selectedCategory, setSelectedCategory] = useState('Applications') // Default tab
 
   // Dynamic Categories
   const [categories, setCategories] = useState([
-    'Trade License',
-    'Employee Category/Visa',
-    'Employee Category/Health Insurance',
-    'Employee Category/Labour card',
+    'Company/Trade License',
+    'Company/Establishment Card',
+    'Owner/Partners/Visa',
+    'Owner/Partners/Partnership Agreement',
+    'Employees/Visa',
+    'Employees/Health Insurance',
+    'Employees/Labour card',
     'Other Documents'
   ])
   const [showCategoryModal, setShowCategoryModal] = useState(false)
@@ -64,7 +99,7 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
   const [loadingApps, setLoadingApps] = useState(false)
 
   // Expandable Sidebar categories state
-  const [expandedCats, setExpandedCats] = useState({ 'Employee Category': true })
+  const [expandedCats, setExpandedCats] = useState({ 'Company': true, 'Owner/Partners': true, 'Employees': true })
 
   // Company Modals
   const [showCompanyModal, setShowCompanyModal] = useState(false)
@@ -151,12 +186,20 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
   const getCategoryIcon = useCallback((cat) => {
     const base = getCategoryBaseName(cat)
     switch (base) {
-      case 'Trade License': return <LicenseIcon className="me-1" size={16} />
-      case 'Health Insurance': return <InsuranceIcon className="me-1" size={16} />
-      case 'Visa': return <VisaIcon className="me-1" size={16} />
-      case 'Labour card': return <CardIcon className="me-1" size={16} />
-      case 'Other Documents': return <FolderIcon className="me-1" size={16} />
-      default: return <FolderIcon className="me-1" size={16} />
+      case 'Trade License':
+      case 'Partnership Agreement':
+        return <LicenseIcon className="me-1" size={16} />
+      case 'Health Insurance':
+        return <InsuranceIcon className="me-1" size={16} />
+      case 'Visa':
+        return <VisaIcon className="me-1" size={16} />
+      case 'Labour card':
+      case 'Establishment Card':
+        return <CardIcon className="me-1" size={16} />
+      case 'Other Documents':
+        return <FolderIcon className="me-1" size={16} />
+      default:
+        return <FolderIcon className="me-1" size={16} />
     }
   }, [])
 
@@ -214,12 +257,6 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
       console.error('Failed to load payment cards:', err)
     }
   }, [])
-
-  useEffect(() => {
-    loadCompanies()
-    loadPaymentCards()
-  }, [loadCompanies, loadPaymentCards])
-
   const loadApplications = useCallback(async () => {
     setLoadingApps(true)
     try {
@@ -234,6 +271,11 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
     }
   }, [])
 
+  useEffect(() => {
+    loadCompanies()
+    loadPaymentCards()
+    loadApplications()
+  }, [loadCompanies, loadPaymentCards, loadApplications])
   const filteredApps = useMemo(() => {
     if (!selectedCompany) return []
     return applications.filter(a => a.customerType === 'Company' && a.emiratesId === selectedCompany.name)
@@ -241,6 +283,7 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
 
   useEffect(() => {
     if (selectedCompany) {
+      setSelectedCategory('Applications')
       loadRecords(selectedCompany.id)
       loadApplications()
     }
@@ -508,10 +551,18 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
 
   // Render Employee Name Field Label based on Tab
   const getEmployeeFieldLabel = () => {
-    switch (selectedCategory) {
+    const base = getCategoryBaseName(selectedCategory)
+    if (selectedCategory && selectedCategory.startsWith('Owner/Partners/')) {
+      return 'Owner / Partner Name'
+    }
+    switch (base) {
       case 'Trade License':
         return 'Sponsor / Partner Name'
+      case 'Partnership Agreement':
+        return 'Partner Name(s)'
       case 'Health Insurance':
+      case 'Labour card':
+        return 'Employee Name'
       case 'Visa':
         return 'Employee Name'
       default:
@@ -521,13 +572,20 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
 
   // Render Document Number Field Label based on Tab
   const getDocNumberLabel = () => {
-    switch (selectedCategory) {
+    const base = getCategoryBaseName(selectedCategory)
+    switch (base) {
       case 'Trade License':
         return 'License Number'
+      case 'Establishment Card':
+        return 'Establishment Card Number'
+      case 'Partnership Agreement':
+        return 'Agreement Number'
       case 'Health Insurance':
         return 'Policy / Card Number'
       case 'Visa':
         return 'Visa File / UID Number'
+      case 'Labour card':
+        return 'Labour Card Number'
       default:
         return 'Document Number'
     }
@@ -535,13 +593,20 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
 
   // Render Type Field Label based on Tab
   const getDocTypeLabel = () => {
-    switch (selectedCategory) {
+    const base = getCategoryBaseName(selectedCategory)
+    switch (base) {
       case 'Trade License':
         return 'Authority / Registry (e.g. DED)'
+      case 'Establishment Card':
+        return 'Issuing Authority (e.g. GDRFA)'
+      case 'Partnership Agreement':
+        return 'Agreement Type'
       case 'Health Insurance':
         return 'Insurance Provider (e.g. Daman)'
       case 'Visa':
         return 'Visa Type (e.g. Work, Partner)'
+      case 'Labour card':
+        return 'Card Type / Profession'
       default:
         return 'Document Type / Issuing Body'
     }
@@ -572,7 +637,7 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                 <h3>Registered Companies</h3>
                 <span className="record-count">{filteredCompanies.length} companies</span>
               </div>
-              <div className="grid-toolbar-right">
+              <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
                 <input
                   className="grid-filter-input"
                   type="text"
@@ -580,6 +645,27 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                   value={companySearch}
                   onChange={(e) => setCompanySearch(e.target.value)}
                 />
+                <Dropdown align="end" className="d-inline">
+                  <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-companies">
+                    Columns
+                  </Dropdown.Toggle>
+                  <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                    <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                    <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                      {companiesCols.colOrder.map((col) => (
+                        <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                          <input
+                            type="checkbox"
+                            checked={companiesCols.colVisible[col]}
+                            onChange={() => companiesCols.toggleColumn(col)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          {companiesCols.friendlyNames[col]}
+                        </label>
+                      ))}
+                    </div>
+                  </Dropdown.Menu>
+                </Dropdown>
                 <button className="btn-outline-subtle" onClick={loadCompanies} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <RefreshIcon size={14} /> Refresh
                 </button>
@@ -600,40 +686,92 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                 <Table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Company Name</th>
-                      <th>Advance Balance</th>
-                      <th style={{ textAlign: 'center', width: 330 }}>Actions</th>
+                      {companiesCols.colOrder.map((colId, index) => {
+                        if (!companiesCols.colVisible[colId]) return null
+                        const label = companiesCols.friendlyNames[colId]
+                        let style = { cursor: 'move', userSelect: 'none' }
+                        if (colId === 'advance' || colId === 'due') {
+                          style.textAlign = 'right'
+                        } else if (colId === 'actions') {
+                          style.textAlign = 'center'
+                          style.width = '330px'
+                        }
+                        return (
+                          <th
+                            key={colId}
+                            draggable
+                            onDragStart={(e) => companiesCols.handleDragStart(e, index)}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => companiesCols.handleDrop(e, index)}
+                            style={style}
+                            title="Drag to rearrange column order"
+                          >
+                            {label}
+                          </th>
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCompanies.map((c) => (
-                      <tr key={c.id}>
-                        <td style={{ verticalAlign: 'middle', fontWeight: 600, fontSize: '1.02rem', color: 'var(--text-primary)' }}>
-                          <span style={{ marginRight: 10, color: 'var(--accent-primary)', display: 'inline-flex', verticalAlign: 'middle' }}>
-                            <CompanyIcon size={18} />
-                          </span>
-                          <a href="#" className="company-link-name" onClick={(e) => { e.preventDefault(); setSelectedCompany(c); }} style={{ color: 'var(--text-primary)', textDecoration: 'none', verticalAlign: 'middle' }}>
-                            {c.name}
-                          </a>
-                        </td>
-                        <td style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)' }}>
-                          AED {(c.advanceBalance || 0).toFixed(2)}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
-                            <Button variant="outline-primary" size="sm" className="py-1 px-3 d-flex align-items-center gap-1" onClick={() => setSelectedCompany(c)}>
-                              <FolderIcon size={14} /> Open Files
-                            </Button>
-                            <Button variant="outline-warning" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleOpenCompanyModal(c)}>
-                              <EditIcon size={14} /> Rename
-                            </Button>
-                            <Button variant="outline-danger" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleDeleteCompany(c)}>
-                              <TrashIcon size={14} /> Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredCompanies.map((c) => {
+                      const totalDue = applications
+                        .filter(a => a.customerType === 'Company' && a.emiratesId === c.name && a.status !== 'Rejected')
+                        .reduce((sum, a) => {
+                          const customerFee = a.serviceCharge || 0
+                          const paid = a.paidAmount !== undefined && a.paidAmount !== null ? a.paidAmount : a.serviceCharge
+                          return sum + (customerFee - paid)
+                        }, 0)
+                      return (
+                        <tr key={c.id}>
+                          {companiesCols.colOrder.map((colId) => {
+                            if (!companiesCols.colVisible[colId]) return null
+                            switch (colId) {
+                              case 'name':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, fontSize: '1.02rem', color: 'var(--text-primary)' }}>
+                                    <span style={{ marginRight: 10, color: 'var(--accent-primary)', display: 'inline-flex', verticalAlign: 'middle' }}>
+                                      <CompanyIcon size={18} />
+                                    </span>
+                                    <a href="#" className="company-link-name" onClick={(e) => { e.preventDefault(); setSelectedCategory('Applications'); setSelectedCompany(c); }} style={{ color: 'var(--text-primary)', textDecoration: 'none', verticalAlign: 'middle' }}>
+                                      {c.name}
+                                    </a>
+                                  </td>
+                                )
+                              case 'advance':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                    AED {(c.advanceBalance || 0).toFixed(2)}
+                                  </td>
+                                )
+                              case 'due':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, color: totalDue > 0 ? 'var(--danger)' : 'var(--text-secondary)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                    AED {totalDue.toFixed(2)}
+                                  </td>
+                                )
+                              case 'actions':
+                                return (
+                                  <td key={colId}>
+                                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+                                      <Button variant="outline-primary" size="sm" className="py-1 px-3 d-flex align-items-center gap-1" onClick={() => { setSelectedCategory('Applications'); setSelectedCompany(c); }}>
+                                        <FolderIcon size={14} /> Open Files
+                                      </Button>
+                                      <Button variant="outline-warning" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleOpenCompanyModal(c)}>
+                                        <EditIcon size={14} /> Rename
+                                      </Button>
+                                      <Button variant="outline-danger" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleDeleteCompany(c)}>
+                                        <TrashIcon size={14} /> Delete
+                                      </Button>
+                                    </div>
+                                  </td>
+                                )
+                              default:
+                                return null
+                            }
+                          })}
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </Table>
               )}
@@ -667,9 +805,15 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
               <button className="btn-outline-subtle" onClick={() => handleOpenCompanyModal(selectedCompany)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EditIcon size={14} /> Rename
               </button>
-              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }} disabled={selectedCategory === 'Applications'}>
-                <PlusIcon size={14} /> Add {getCategoryBaseName(selectedCategory)}
-              </button>
+              {selectedCategory === 'Applications' ? (
+                <button className="btn-primary-glow" onClick={() => onNewApplication && onNewApplication(selectedCompany)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PlusIcon size={14} /> New Application
+                </button>
+              ) : (
+                <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PlusIcon size={14} /> Add {getCategoryBaseName(selectedCategory)}
+                </button>
+              )}
             </div>
           </div>
 
@@ -782,7 +926,28 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                       <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>Applications History</h3>
                       <span className="record-count">{filteredApps.length} transactions</span>
                     </div>
-                    <div className="grid-toolbar-right">
+                    <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
+                      <Dropdown align="end" className="d-inline">
+                        <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-apps">
+                          Columns
+                        </Dropdown.Toggle>
+                        <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                          <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                          <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                            {appsCols.colOrder.map((col) => (
+                              <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={appsCols.colVisible[col]}
+                                  onChange={() => appsCols.toggleColumn(col)}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                {appsCols.friendlyNames[col]}
+                              </label>
+                            ))}
+                          </div>
+                        </Dropdown.Menu>
+                      </Dropdown>
                       <button className="btn-outline-subtle" onClick={loadApplications} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <RefreshIcon size={14} /> Refresh
                       </button>
@@ -796,38 +961,101 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                         <span style={{ color: 'var(--text-secondary)' }}>Loading transactions...</span>
                       </div>
                     ) : filteredApps.length === 0 ? (
-                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                        📄 No applications recorded for this company yet.
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                        <ApplicationIcon size={18} className="text-secondary" /> No applications recorded for this company yet.
                       </div>
                     ) : (
                       <Table className="admin-table">
                         <thead>
                           <tr>
-                            <th style={{ width: 100 }}>ID</th>
-                            <th>Service</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Received (AED)</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Paid (AED)</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Profit (AED)</th>
-                            <th>Paid By</th>
-                            <th>Date</th>
-                            <th style={{ textAlign: 'center', width: 120 }}>Status</th>
+                            {appsCols.colOrder.map((colId, index) => {
+                              if (!appsCols.colVisible[colId]) return null
+                              const label = appsCols.friendlyNames[colId]
+                              let style = { cursor: 'move', userSelect: 'none' }
+                              if (colId === 'id') {
+                                style.width = '60px'
+                              } else if (colId === 'govtFee' || colId === 'typingFee' || colId === 'serviceCharge' || colId === 'paidAmount' || colId === 'balance') {
+                                style.textAlign = 'right'
+                                style.width = colId === 'serviceCharge' || colId === 'paidAmount' ? '100px' : '90px'
+                              } else if (colId === 'status') {
+                                style.textAlign = 'center'
+                                style.width = '100px'
+                              }
+                              return (
+                                <th
+                                  key={colId}
+                                  draggable
+                                  onDragStart={(e) => appsCols.handleDragStart(e, index)}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDrop={(e) => appsCols.handleDrop(e, index)}
+                                  style={style}
+                                  title="Drag to rearrange column order"
+                                >
+                                  {label}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredApps.map((a) => (
-                            <tr key={a.id}>
-                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
-                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
-                              <td>{a.customerPayment}</td>
-                              <td>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                              <td style={{ textAlign: 'center' }}>
-                                <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
-                              </td>
-                            </tr>
-                          ))}
+                          {filteredApps.map((a) => {
+                            const customerFee = a.serviceCharge || 0
+                            const paid = a.paidAmount !== undefined && a.paidAmount !== null ? a.paidAmount : a.serviceCharge
+                            const balance = customerFee - paid
+                            return (
+                              <tr key={a.id}>
+                                {appsCols.colOrder.map((colId) => {
+                                  if (!appsCols.colVisible[colId]) return null
+                                  switch (colId) {
+                                    case 'id':
+                                      return (
+                                        <td key={colId} style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
+                                      )
+                                    case 'service':
+                                      return (
+                                        <td key={colId} style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
+                                      )
+                                    case 'govtFee':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                                      )
+                                    case 'typingFee':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                                      )
+                                    case 'serviceCharge':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{customerFee.toFixed(2)}</td>
+                                      )
+                                    case 'paidAmount':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{paid.toFixed(2)}</td>
+                                      )
+                                    case 'balance':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: balance > 0 ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: 600 }}>{balance.toFixed(2)}</td>
+                                      )
+                                    case 'paidBy':
+                                      return (
+                                        <td key={colId}>{a.customerPayment}</td>
+                                      )
+                                    case 'date':
+                                      return (
+                                        <td key={colId}>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}</td>
+                                      )
+                                    case 'status':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'center' }}>
+                                          <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
+                                        </td>
+                                      )
+                                    default:
+                                      return null
+                                  }
+                                })}
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </Table>
                     )}
@@ -843,7 +1071,28 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                       <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{getCategoryBaseName(selectedCategory)} Entries</h3>
                       <span className="record-count">{filteredRecords.length} records</span>
                     </div>
-                    <div className="grid-toolbar-right">
+                    <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
+                      <Dropdown align="end" className="d-inline">
+                        <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-records">
+                          Columns
+                        </Dropdown.Toggle>
+                        <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                          <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                          <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                            {recordsCols.colOrder.map((col) => (
+                              <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={recordsCols.colVisible[col]}
+                                  onChange={() => recordsCols.toggleColumn(col)}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                {recordsCols.friendlyNames[col]}
+                              </label>
+                            ))}
+                          </div>
+                        </Dropdown.Menu>
+                      </Dropdown>
                       <button className="btn-outline-subtle" onClick={() => loadRecords(selectedCompany.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <RefreshIcon size={14} /> Refresh
                       </button>
@@ -857,21 +1106,46 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                         <span style={{ color: 'var(--text-secondary)' }}>Loading company documents...</span>
                       </div>
                     ) : filteredRecords.length === 0 ? (
-                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                        📄 No records added in <strong>{getCategoryBaseName(selectedCategory)}</strong> yet. Click "+ Add {getCategoryBaseName(selectedCategory)}" to insert your first record.
+                      <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                        <FolderIcon size={18} className="text-secondary" /> No records added in <strong>{getCategoryBaseName(selectedCategory)}</strong> yet. Click "+ Add {getCategoryBaseName(selectedCategory)}" to insert your first record.
                       </div>
                     ) : (
                       <Table className="admin-table">
                         <thead>
                           <tr>
-                            <th>{getEmployeeFieldLabel()}</th>
-                            <th>{getDocNumberLabel()}</th>
-                            <th>{getDocTypeLabel()}</th>
-                            <th style={{ width: 140 }}>Issue Date</th>
-                            <th style={{ width: 140 }}>Expiry Date</th>
-                            <th style={{ width: 150 }}>Status / Days</th>
-                            <th>Notes</th>
-                            <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
+                            {recordsCols.colOrder.map((colId, index) => {
+                              if (!recordsCols.colVisible[colId]) return null
+                              let label = recordsCols.friendlyNames[colId]
+                              if (colId === 'employeeName') {
+                                label = getEmployeeFieldLabel()
+                              } else if (colId === 'documentNumber') {
+                                label = getDocNumberLabel()
+                              } else if (colId === 'documentType') {
+                                label = getDocTypeLabel()
+                              }
+                              let style = { cursor: 'move', userSelect: 'none' }
+                              if (colId === 'issueDate' || colId === 'expiryDate') {
+                                style.width = '140px'
+                              } else if (colId === 'status') {
+                                style.width = '150px'
+                              } else if (colId === 'actions') {
+                                style.textAlign = 'center'
+                                style.width = '140px'
+                              }
+                              return (
+                                <th
+                                  key={colId}
+                                  draggable
+                                  onDragStart={(e) => recordsCols.handleDragStart(e, index)}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDrop={(e) => recordsCols.handleDrop(e, index)}
+                                  style={style}
+                                  title="Drag to rearrange column order"
+                                >
+                                  {label}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
@@ -879,29 +1153,60 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                             const expiryInfo = getDaysLeftInfo(r.expiryDate)
                             return (
                               <tr key={r.id}>
-                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.employeeName || '—'}</td>
-                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
-                                <td>{r.documentType || '—'}</td>
-                                <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                                <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                                <td>
-                                  <div className="d-flex flex-column">
-                                    <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
-                                  </div>
-                                </td>
-                                <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
-                                  {r.notes || '—'}
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                                    <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
-                                      <EditIcon size={14} />
-                                    </Button>
-                                    <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
-                                      <TrashIcon size={14} />
-                                    </Button>
-                                  </div>
-                                </td>
+                                {recordsCols.colOrder.map((colId) => {
+                                  if (!recordsCols.colVisible[colId]) return null
+                                  switch (colId) {
+                                    case 'employeeName':
+                                      return (
+                                        <td key={colId} style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.employeeName || '—'}</td>
+                                      )
+                                    case 'documentNumber':
+                                      return (
+                                        <td key={colId} style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
+                                      )
+                                    case 'documentType':
+                                      return (
+                                        <td key={colId}>{r.documentType || '—'}</td>
+                                      )
+                                    case 'issueDate':
+                                      return (
+                                        <td key={colId}>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                      )
+                                    case 'expiryDate':
+                                      return (
+                                        <td key={colId}>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                      )
+                                    case 'status':
+                                      return (
+                                        <td key={colId}>
+                                          <div className="d-flex flex-column">
+                                            <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
+                                          </div>
+                                        </td>
+                                      )
+                                    case 'notes':
+                                      return (
+                                        <td key={colId} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
+                                          {r.notes || '—'}
+                                        </td>
+                                      )
+                                    case 'actions':
+                                      return (
+                                        <td key={colId}>
+                                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                                            <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
+                                              <EditIcon size={14} />
+                                            </Button>
+                                            <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
+                                              <TrashIcon size={14} />
+                                            </Button>
+                                          </div>
+                                        </td>
+                                      )
+                                    default:
+                                      return null
+                                  }
+                                })}
                               </tr>
                             )
                           })}
@@ -953,7 +1258,7 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
       <Modal show={showRecordModal} onHide={() => setShowRecordModal(false)} size="lg" centered contentClassName="modal-dark">
         <Modal.Header closeButton closeVariant="white">
           <Modal.Title>
-            {editingRecord ? 'Edit' : 'Add'} {selectedCategory} Record
+            {editingRecord ? 'Edit' : 'Add'} {getCategoryBaseName(selectedCategory)} Record
           </Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleSaveRecord}>
@@ -993,7 +1298,7 @@ export default function CompanyManagement({ initialCompanyId, onClearInitialId }
                 <Form.Control
                   type="text"
                   name="documentType"
-                  placeholder={`e.g. ${selectedCategory === 'Health Insurance' ? 'Daman' : selectedCategory === 'Visa' ? 'Employment Visa' : 'DED'}`}
+                  placeholder={`e.g. ${getCategoryBaseName(selectedCategory) === 'Health Insurance' ? 'Daman' : getCategoryBaseName(selectedCategory) === 'Visa' ? 'Employment Visa' : 'DED'}`}
                   value={recordForm.documentType}
                   onChange={handleRecordInputChange}
                 />

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Spinner, Alert, Table } from 'react-bootstrap'
+import { Spinner, Alert, Table, Dropdown } from 'react-bootstrap'
 import { ApplicationIcon, SalesIcon, CardIcon, SaveIcon, ReportIcon } from './Icons'
+import { useTableColumns } from './useTableColumns'
+import { exportToExcel, exportToPDF } from './exportHelper'
 
 function getTodayString() {
   const d = new Date()
@@ -8,6 +10,18 @@ function getTodayString() {
 }
 
 function DailyReport() {
+  const reportCols = useTableColumns('daily_report_list', ['id', 'customer', 'customerType', 'service', 'charge', 'govtFee', 'profit', 'customerPayment', 'govtPayment'], {
+    id: 'ID',
+    customer: 'Customer',
+    customerType: 'Type',
+    service: 'Service',
+    charge: 'Charge',
+    govtFee: 'Paid',
+    profit: 'Profit',
+    customerPayment: 'Cust. Paid',
+    govtPayment: 'Govt. Paid'
+  })
+
   const [selectedDate, setSelectedDate] = useState(getTodayString())
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(false)
@@ -38,6 +52,8 @@ function DailyReport() {
     setSelectedDate(e.target.value)
   }, [])
 
+
+
   // Compute totals
   const totals = useMemo(() => {
     const totalCharge = applications.reduce((s, a) => s + a.serviceCharge, 0)
@@ -53,6 +69,50 @@ function DailyReport() {
     const cardOut = applications.filter(a => a.govtPayment !== 'Cash' && a.govtPayment !== 'N/A').reduce((s, a) => s + a.govtFee, 0)
     return { totalCharge, totalGovt, totalTyping, cashIn, cardIn, chequeIn, transferIn, creditIn, advanceIn, cashOut, cardOut, count: applications.length }
   }, [applications])
+
+  const handleExport = useCallback(async (format) => {
+    let shopConfig = null
+    try {
+      const shopRes = await window.api.getShopConfig()
+      if (shopRes.success) shopConfig = shopRes.data
+    } catch (err) {
+      console.error(err)
+    }
+
+    const headers = ['ID', 'Customer', 'Type', 'Service', 'Charge (AED)', 'Govt Fee (AED)', 'Profit (AED)', 'Customer Payment', 'Govt Payment']
+    const rows = applications.map(a => [
+      a.id,
+      a.customerName,
+      a.customerType,
+      a.service?.name || '—',
+      a.serviceCharge.toFixed(2),
+      a.govtFee.toFixed(2),
+      a.typingFee.toFixed(2),
+      a.customerPayment,
+      a.govtPayment
+    ])
+
+    const formattedDate = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })
+    const title = 'Daily Transactions Report'
+    const subtitle = `Date: ${formattedDate}`
+    const defaultName = `daily_report_${selectedDate}`
+
+    if (format === 'excel') {
+      const res = await exportToExcel(headers, rows, `${defaultName}.xls`)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    } else {
+      const summaryCards = [
+        { label: 'Transactions', value: String(totals.count) },
+        { label: 'Total Sales', value: `AED ${totals.totalCharge.toFixed(2)}` },
+        { label: 'Paid to Govt', value: `AED ${totals.totalGovt.toFixed(2)}` },
+        { label: 'Net Profit', value: `AED ${totals.totalTyping.toFixed(2)}` }
+      ]
+      const res = await exportToPDF(shopConfig, title, subtitle, headers, rows, `${defaultName}.pdf`, summaryCards)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    }
+  }, [applications, selectedDate, totals])
 
   // Formatted date for display
   const displayDate = useMemo(() => {
@@ -70,7 +130,20 @@ function DailyReport() {
           </h1>
           <p>{displayDate}</p>
         </div>
-        <div className="page-header-actions">
+        <div className="page-header-actions" style={{ display: 'flex', gap: 8 }}>
+          <Dropdown align="end" className="d-inline">
+            <Dropdown.Toggle as="button" className="btn-outline-subtle" id="btn-export-daily" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Export
+            </Dropdown.Toggle>
+            <Dropdown.Menu className="dropdown-menu-dark">
+              <Dropdown.Item onClick={() => handleExport('excel')}>
+                Export Excel (.xls)
+              </Dropdown.Item>
+              <Dropdown.Item onClick={() => handleExport('pdf')}>
+                Export PDF (.pdf)
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown>
           <input
             type="date"
             className="grid-filter-input"
@@ -177,6 +250,29 @@ function DailyReport() {
             <h3>Transactions</h3>
             <span className="record-count">{applications.length} records</span>
           </div>
+          <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
+            <Dropdown align="end" className="d-inline">
+              <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-daily">
+                Columns
+              </Dropdown.Toggle>
+              <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                  {reportCols.colOrder.map((col) => (
+                    <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={reportCols.colVisible[col]}
+                        onChange={() => reportCols.toggleColumn(col)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      {reportCols.friendlyNames[col]}
+                    </label>
+                  ))}
+                </div>
+              </Dropdown.Menu>
+            </Dropdown>
+          </div>
         </div>
         <div className="admin-table-wrap" style={{ maxHeight: 400 }}>
           {loading ? (
@@ -188,36 +284,65 @@ function DailyReport() {
             <Table className="admin-table">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Customer</th>
-                  <th>Type</th>
-                  <th>Service</th>
-                  <th style={{ textAlign: 'right' }}>Charge</th>
-                  <th style={{ textAlign: 'right' }}>Paid</th>
-                  <th style={{ textAlign: 'right' }}>Profit</th>
-                  <th>Cust. Paid</th>
-                  <th>Govt. Paid</th>
+                  {reportCols.colOrder.map((colId, index) => {
+                    if (!reportCols.colVisible[colId]) return null
+                    let style = { cursor: 'move', userSelect: 'none' }
+                    if (colId === 'charge' || colId === 'govtFee' || colId === 'profit') {
+                      style.textAlign = 'right'
+                    }
+                    return (
+                      <th
+                        key={colId}
+                        draggable
+                        onDragStart={(e) => reportCols.handleDragStart(e, index)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => reportCols.handleDrop(e, index)}
+                        style={style}
+                        title="Drag to rearrange column order"
+                      >
+                        {reportCols.friendlyNames[colId]}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
                 {applications.length === 0 ? (
-                  <tr><td colSpan={9} className="admin-empty">No transactions for this date</td></tr>
+                  <tr><td colSpan={reportCols.colOrder.filter(c => reportCols.colVisible[c]).length} className="admin-empty">No transactions for this date</td></tr>
                 ) : (
                   applications.map((a) => (
                     <tr key={a.id}>
-                      <td className="admin-td-id">{a.id}</td>
-                      <td>{a.customerName}</td>
-                      <td>
-                        <span className={`customer-type-badge ${a.customerType === 'Company' ? 'company' : 'individual'}`}>
-                          {a.customerType}
-                        </span>
-                      </td>
-                      <td>{a.service?.name || '—'}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)' }}>{a.typingFee.toFixed(2)}</td>
-                      <td><span className="payment-method-badge">{a.customerPayment}</span></td>
-                      <td><span className="payment-method-badge">{a.govtPayment}</span></td>
+                      {reportCols.colOrder.map((colId) => {
+                        if (!reportCols.colVisible[colId]) return null
+                        switch (colId) {
+                          case 'id':
+                            return <td key={colId} className="admin-td-id">{a.id}</td>
+                          case 'customer':
+                            return <td key={colId}>{a.customerName}</td>
+                          case 'customerType':
+                            return (
+                              <td key={colId}>
+                                <span className={`customer-type-badge ${a.customerType === 'Company' ? 'company' : 'individual'}`}>
+                                  {a.customerType}
+                                </span>
+                              </td>
+                            )
+                          case 'service':
+                            return <td key={colId}>{a.service?.name || '—'}</td>
+                          case 'charge':
+                            return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
+                          case 'govtFee':
+                            return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                          case 'profit':
+                            return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)' }}>{a.typingFee.toFixed(2)}</td>
+                          case 'customerPayment':
+                            return <td key={colId}><span className="payment-method-badge">{a.customerPayment}</span></td>
+                          case 'govtPayment':
+                            return <td key={colId}><span className="payment-method-badge">{a.govtPayment}</span></td>
+                          default:
+                            return null
+                        }
+                      })}
                     </tr>
                   ))
                 )}
@@ -225,11 +350,36 @@ function DailyReport() {
               {applications.length > 0 && (
                 <tfoot>
                   <tr className="report-totals-row">
-                    <td colSpan={4} style={{ fontWeight: 700 }}>TOTALS</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{totals.totalCharge.toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{totals.totalGovt.toFixed(2)}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--success)' }}>{totals.totalTyping.toFixed(2)}</td>
-                    <td colSpan={2}></td>
+                    {(() => {
+                      const visibleCols = reportCols.colOrder.filter(c => reportCols.colVisible[c]);
+                      const firstNumericIdx = visibleCols.findIndex(c => c === 'charge' || c === 'govtFee' || c === 'profit');
+                      
+                      return visibleCols.map((colId, idx) => {
+                        let text = '';
+                        let align = 'left';
+                        let color = 'inherit';
+                        
+                        if (colId === 'charge') {
+                          text = totals.totalCharge.toFixed(2);
+                          align = 'right';
+                        } else if (colId === 'govtFee') {
+                          text = totals.totalGovt.toFixed(2);
+                          align = 'right';
+                        } else if (colId === 'profit') {
+                          text = totals.totalTyping.toFixed(2);
+                          align = 'right';
+                          color = 'var(--success)';
+                        } else if (idx === 0 || (firstNumericIdx !== -1 && idx === firstNumericIdx - 1)) {
+                          // Print TOTALS on the cell immediately preceding the first numeric, or the first cell if none precede
+                          if (idx === 0 && firstNumericIdx > 0) {
+                            text = 'TOTALS';
+                          } else if (firstNumericIdx !== -1 && idx === firstNumericIdx - 1) {
+                            text = 'TOTALS';
+                          }
+                        }
+                        return <td key={colId} style={{ fontWeight: 700, textAlign: align, color }}>{text}</td>
+                      })
+                    })()}
                   </tr>
                 </tfoot>
               )}

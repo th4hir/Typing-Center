@@ -12,7 +12,7 @@
     "package": "electron-vite build && electron-builder"
   },
   "keywords": [],
-  "author": "",
+  "author": "First Choice Software GmbH",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
@@ -35,15 +35,15 @@
     "react-dom": "^19.2.7"
   },
   "build": {
-    "appId": "com.typingcenter.app",
-    "productName": "TypingCenter",
+    "appId": "com.FirstChoice_Typing.app",
+    "productName": "Typing Center",
     "directories": {
       "output": "dist"
     },
     "files": [
       "out/**/*",
       "package.json",
-      "prisma/schema.prisma"
+      "prisma/**/*"
     ],
     "asar": false,
     "extraResources": [
@@ -63,7 +63,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Typing Center"
+      "shortcutName": "First Choice Typing",
+      "installerHeader": "src/installerHeader.bmp",
+      "installerSidebar": "src/installerSidebar.bmp"
     }
   }
 }

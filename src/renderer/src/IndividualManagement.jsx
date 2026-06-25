@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Table, Modal, Button, Form, Spinner, Alert } from 'react-bootstrap'
+import { Table, Modal, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
+import { useTableColumns } from './useTableColumns'
 import {
   PlusIcon,
   EditIcon,
@@ -17,7 +18,39 @@ import {
   ApplicationIcon
 } from './Icons'
 
-export default function IndividualManagement({ initialIndividualId, onClearInitialId }) {
+export default function IndividualManagement({ initialIndividualId, onClearInitialId, onNewApplication }) {
+  const individualCols = useTableColumns('individual_list', ['name', 'phone', 'advance', 'due', 'actions'], {
+    name: 'Client Name',
+    phone: 'Phone Number',
+    advance: 'Advance Balance',
+    due: 'Outstanding Due',
+    actions: 'Actions'
+  })
+
+  const appsCols = useTableColumns('individual_apps', ['id', 'service', 'govtFee', 'typingFee', 'serviceCharge', 'paidAmount', 'balance', 'paidBy', 'date', 'status'], {
+    id: 'ID',
+    service: 'Service',
+    govtFee: 'Govt Fee',
+    typingFee: 'Typing Fee',
+    serviceCharge: 'Customer Fee',
+    paidAmount: 'Paid Amount',
+    balance: 'Balance',
+    paidBy: 'Paid By',
+    date: 'Date',
+    status: 'Status'
+  })
+
+  const recordsCols = useTableColumns('individual_records', ['holderName', 'documentNumber', 'documentType', 'issueDate', 'expiryDate', 'status', 'notes', 'actions'], {
+    holderName: 'Holder Name',
+    documentNumber: 'Document Number',
+    documentType: 'Document Type',
+    issueDate: 'Issue Date',
+    expiryDate: 'Expiry Date',
+    status: 'Status / Days',
+    notes: 'Notes',
+    actions: 'Actions'
+  })
+
   // Navigation & Individual Selection
   const [individuals, setIndividuals] = useState([])
   const [selectedIndividual, setSelectedIndividual] = useState(null)
@@ -168,12 +201,6 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
       console.error('Failed to load payment cards:', err)
     }
   }, [])
-
-  useEffect(() => {
-    loadIndividuals()
-    loadPaymentCards()
-  }, [loadIndividuals, loadPaymentCards])
-
   const loadApplications = useCallback(async () => {
     setLoadingApps(true)
     try {
@@ -188,6 +215,11 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
     }
   }, [])
 
+  useEffect(() => {
+    loadIndividuals()
+    loadPaymentCards()
+    loadApplications()
+  }, [loadIndividuals, loadPaymentCards, loadApplications])
   const filteredApps = useMemo(() => {
     if (!selectedIndividual) return []
     return applications.filter(a => a.customerType === 'Individual' && a.customerName === selectedIndividual.name)
@@ -506,7 +538,7 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                 <h3>Registered Individuals</h3>
                 <span className="record-count">{filteredIndividuals.length} clients</span>
               </div>
-              <div className="grid-toolbar-right">
+              <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
                 <input
                   className="grid-filter-input"
                   type="text"
@@ -514,6 +546,27 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                   value={individualSearch}
                   onChange={(e) => setIndividualSearch(e.target.value)}
                 />
+                <Dropdown align="end" className="d-inline">
+                  <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-individuals">
+                    Columns
+                  </Dropdown.Toggle>
+                  <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                    <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                    <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                      {individualCols.colOrder.map((col) => (
+                        <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                          <input
+                            type="checkbox"
+                            checked={individualCols.colVisible[col]}
+                            onChange={() => individualCols.toggleColumn(col)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                          {individualCols.friendlyNames[col]}
+                        </label>
+                      ))}
+                    </div>
+                  </Dropdown.Menu>
+                </Dropdown>
                 <button className="btn-outline-subtle" onClick={loadIndividuals} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <RefreshIcon size={14} /> Refresh
                 </button>
@@ -534,44 +587,95 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                 <Table className="admin-table">
                   <thead>
                     <tr>
-                      <th>Client Name</th>
-                      <th>Phone Number</th>
-                      <th>Advance Balance</th>
-                      <th style={{ textAlign: 'center', width: 330 }}>Actions</th>
+                      {individualCols.colOrder.map((colId, index) => {
+                        if (!individualCols.colVisible[colId]) return null
+                        let style = { cursor: 'move', userSelect: 'none' }
+                        if (colId === 'actions') {
+                          style.textAlign = 'center'
+                          style.width = '330px'
+                        }
+                        return (
+                          <th
+                            key={colId}
+                            draggable
+                            onDragStart={(e) => individualCols.handleDragStart(e, index)}
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => individualCols.handleDrop(e, index)}
+                            style={style}
+                            title="Drag to rearrange column order"
+                          >
+                            {individualCols.friendlyNames[colId]}
+                          </th>
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredIndividuals.map((ind) => (
-                      <tr key={ind.id}>
-                        <td style={{ verticalAlign: 'middle', fontWeight: 600, fontSize: '1.02rem', color: 'var(--text-primary)' }}>
-                          <span style={{ marginRight: 10, color: 'var(--accent-primary)', display: 'inline-flex', verticalAlign: 'middle' }}>
-                            <IndividualIcon size={18} />
-                          </span>
-                          <a href="#" className="company-link-name" onClick={(e) => { e.preventDefault(); setSelectedIndividual(ind); }} style={{ color: 'var(--text-primary)', textDecoration: 'none', verticalAlign: 'middle' }}>
-                            {ind.name}
-                          </a>
-                        </td>
-                        <td style={{ verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
-                          {ind.phone || '—'}
-                        </td>
-                        <td style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)' }}>
-                          AED {(ind.advanceBalance || 0).toFixed(2)}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
-                            <Button variant="outline-primary" size="sm" className="py-1 px-3 d-flex align-items-center gap-1" onClick={() => setSelectedIndividual(ind)}>
-                              <FolderIcon size={14} /> Open Files
-                            </Button>
-                            <Button variant="outline-warning" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleOpenIndividualModal(ind)}>
-                              <EditIcon size={14} /> Edit
-                            </Button>
-                            <Button variant="outline-danger" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleDeleteIndividual(ind)}>
-                              <TrashIcon size={14} /> Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredIndividuals.map((ind) => {
+                      const totalDue = applications
+                        .filter(a => a.customerType === 'Individual' && a.customerName === ind.name && a.status !== 'Rejected')
+                        .reduce((sum, a) => {
+                          const customerFee = a.serviceCharge || 0
+                          const paid = a.paidAmount !== undefined && a.paidAmount !== null ? a.paidAmount : a.serviceCharge
+                          return sum + (customerFee - paid)
+                        }, 0)
+                      return (
+                        <tr key={ind.id}>
+                          {individualCols.colOrder.map((colId) => {
+                            if (!individualCols.colVisible[colId]) return null
+                            switch (colId) {
+                              case 'name':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, fontSize: '1.02rem', color: 'var(--text-primary)' }}>
+                                    <span style={{ marginRight: 10, color: 'var(--accent-primary)', display: 'inline-flex', verticalAlign: 'middle' }}>
+                                      <IndividualIcon size={18} />
+                                    </span>
+                                    <a href="#" className="company-link-name" onClick={(e) => { e.preventDefault(); setSelectedIndividual(ind); }} style={{ color: 'var(--text-primary)', textDecoration: 'none', verticalAlign: 'middle' }}>
+                                      {ind.name}
+                                    </a>
+                                  </td>
+                                )
+                              case 'phone':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
+                                    {ind.phone || '—'}
+                                  </td>
+                                )
+                              case 'advance':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, color: 'var(--success)' }}>
+                                    AED {(ind.advanceBalance || 0).toFixed(2)}
+                                  </td>
+                                )
+                              case 'due':
+                                return (
+                                  <td key={colId} style={{ verticalAlign: 'middle', fontWeight: 600, color: totalDue > 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                                    AED {totalDue.toFixed(2)}
+                                  </td>
+                                )
+                              case 'actions':
+                                return (
+                                  <td key={colId}>
+                                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+                                      <Button variant="outline-primary" size="sm" className="py-1 px-3 d-flex align-items-center gap-1" onClick={() => setSelectedIndividual(ind)}>
+                                        <FolderIcon size={14} /> Open Files
+                                      </Button>
+                                      <Button variant="outline-warning" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleOpenIndividualModal(ind)}>
+                                        <EditIcon size={14} /> Edit
+                                      </Button>
+                                      <Button variant="outline-danger" size="sm" className="py-1 px-2 d-flex align-items-center gap-1" onClick={() => handleDeleteIndividual(ind)}>
+                                        <TrashIcon size={14} /> Delete
+                                      </Button>
+                                    </div>
+                                  </td>
+                                )
+                              default:
+                                return null
+                            }
+                          })}
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </Table>
               )}
@@ -605,9 +709,15 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
               <button className="btn-outline-subtle" onClick={() => handleOpenIndividualModal(selectedIndividual)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <EditIcon size={14} /> Edit
               </button>
-              <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }} disabled={selectedCategory === 'Applications'}>
-                <PlusIcon size={14} /> Add {selectedCategory}
-              </button>
+              {selectedCategory === 'Applications' ? (
+                <button className="btn-primary-glow" onClick={() => onNewApplication && onNewApplication(selectedIndividual)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PlusIcon size={14} /> New Application
+                </button>
+              ) : (
+                <button className="btn-primary-glow" onClick={() => handleOpenRecordModal()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PlusIcon size={14} /> Add {selectedCategory}
+                </button>
+              )}
             </div>
           </div>
 
@@ -664,7 +774,28 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                       <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>Applications History</h3>
                       <span className="record-count">{filteredApps.length} transactions</span>
                     </div>
-                    <div className="grid-toolbar-right">
+                    <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
+                      <Dropdown align="end" className="d-inline">
+                        <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-apps">
+                          Columns
+                        </Dropdown.Toggle>
+                        <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                          <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                          <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                            {appsCols.colOrder.map((col) => (
+                              <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={appsCols.colVisible[col]}
+                                  onChange={() => appsCols.toggleColumn(col)}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                {appsCols.friendlyNames[col]}
+                              </label>
+                            ))}
+                          </div>
+                        </Dropdown.Menu>
+                      </Dropdown>
                       <button className="btn-outline-subtle" onClick={loadApplications} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <RefreshIcon size={14} /> Refresh
                       </button>
@@ -679,37 +810,84 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                       </div>
                     ) : filteredApps.length === 0 ? (
                       <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                        📄 No applications recorded for this client yet.
+                        <ApplicationIcon size={16} className="me-2" /> No applications recorded for this client yet.
                       </div>
                     ) : (
                       <Table className="admin-table">
                         <thead>
                           <tr>
-                            <th style={{ width: 100 }}>ID</th>
-                            <th>Service</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Received (AED)</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Paid (AED)</th>
-                            <th style={{ textAlign: 'right', width: 140 }}>Profit (AED)</th>
-                            <th>Paid By</th>
-                            <th>Date</th>
-                            <th style={{ textAlign: 'center', width: 120 }}>Status</th>
+                            {appsCols.colOrder.map((colId, index) => {
+                              if (!appsCols.colVisible[colId]) return null
+                              let style = { cursor: 'move', userSelect: 'none' }
+                              if (colId === 'id') {
+                                style.width = '60px'
+                              } else if (colId === 'govtFee' || colId === 'typingFee' || colId === 'balance') {
+                                style.textAlign = 'right'
+                                style.width = '90px'
+                              } else if (colId === 'serviceCharge' || colId === 'paidAmount') {
+                                style.textAlign = 'right'
+                                style.width = '100px'
+                              } else if (colId === 'status') {
+                                style.textAlign = 'center'
+                                style.width = '100px'
+                              }
+                              return (
+                                <th
+                                  key={colId}
+                                  draggable
+                                  onDragStart={(e) => appsCols.handleDragStart(e, index)}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDrop={(e) => appsCols.handleDrop(e, index)}
+                                  style={style}
+                                  title="Drag to rearrange column order"
+                                >
+                                  {appsCols.friendlyNames[colId]}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredApps.map((a) => (
-                            <tr key={a.id}>
-                              <td style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
-                              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.serviceCharge.toFixed(2)}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
-                              <td>{a.customerPayment}</td>
-                              <td>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                              <td style={{ textAlign: 'center' }}>
-                                <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
-                              </td>
-                            </tr>
-                          ))}
+                          {filteredApps.map((a) => {
+                            const customerFee = a.serviceCharge || 0
+                            const paid = a.paidAmount !== undefined && a.paidAmount !== null ? a.paidAmount : a.serviceCharge
+                            const balance = customerFee - paid
+                            return (
+                              <tr key={a.id}>
+                                {appsCols.colOrder.map((colId) => {
+                                  if (!appsCols.colVisible[colId]) return null
+                                  switch (colId) {
+                                    case 'id':
+                                      return <td key={colId} style={{ fontVariantNumeric: 'tabular-nums' }}>{a.id}</td>
+                                    case 'service':
+                                      return <td key={colId} style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.service?.name || '—'}</td>
+                                    case 'govtFee':
+                                      return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{a.govtFee.toFixed(2)}</td>
+                                    case 'typingFee':
+                                      return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)', fontWeight: 600 }}>{a.typingFee.toFixed(2)}</td>
+                                    case 'serviceCharge':
+                                      return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{customerFee.toFixed(2)}</td>
+                                    case 'paidAmount':
+                                      return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{paid.toFixed(2)}</td>
+                                    case 'balance':
+                                      return <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: balance > 0 ? 'var(--danger)' : 'var(--text-secondary)', fontWeight: 600 }}>{balance.toFixed(2)}</td>
+                                    case 'paidBy':
+                                      return <td key={colId}>{a.customerPayment}</td>
+                                    case 'date':
+                                      return <td key={colId}>{new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short' })}</td>
+                                    case 'status':
+                                      return (
+                                        <td key={colId} style={{ textAlign: 'center' }}>
+                                          <span className={`status-badge ${a.status.toLowerCase().replace(/\s+/g, '-')}`}>{a.status}</span>
+                                        </td>
+                                      )
+                                    default:
+                                      return null
+                                  }
+                                })}
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </Table>
                     )}
@@ -725,7 +903,38 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                       <h3 style={{ display: 'inline-flex', alignItems: 'center', margin: 0 }}>{selectedCategory} Entries</h3>
                       <span className="record-count">{filteredRecords.length} records</span>
                     </div>
-                    <div className="grid-toolbar-right">
+                    <div className="grid-toolbar-right" style={{ display: 'flex', gap: 10 }}>
+                      <Dropdown align="end" className="d-inline">
+                        <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-records">
+                          Columns
+                        </Dropdown.Toggle>
+                        <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                          <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                          <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                            {recordsCols.colOrder.map((col) => {
+                              let label = recordsCols.friendlyNames[col]
+                              if (col === 'holderName') {
+                                label = getHolderFieldLabel()
+                              } else if (col === 'documentNumber') {
+                                label = getDocNumberLabel()
+                              } else if (col === 'documentType') {
+                                label = getDocTypeLabel()
+                              }
+                              return (
+                                <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={recordsCols.colVisible[col]}
+                                    onChange={() => recordsCols.toggleColumn(col)}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  {label}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </Dropdown.Menu>
+                      </Dropdown>
                       <button className="btn-outline-subtle" onClick={() => loadRecords(selectedIndividual.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <RefreshIcon size={14} /> Refresh
                       </button>
@@ -740,20 +949,45 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                       </div>
                     ) : filteredRecords.length === 0 ? (
                       <div className="admin-empty" style={{ padding: '40px 20px', fontSize: '0.92rem' }}>
-                        📄 No records added in <strong>{selectedCategory}</strong> yet. Click "+ Add {selectedCategory}" to insert your first record.
+                        <FolderIcon size={16} className="me-2" /> No records added in <strong>{selectedCategory}</strong> yet. Click "+ Add {selectedCategory}" to insert your first record.
                       </div>
                     ) : (
                       <Table className="admin-table">
                         <thead>
                           <tr>
-                            <th>{getHolderFieldLabel()}</th>
-                            <th>{getDocNumberLabel()}</th>
-                            <th>{getDocTypeLabel()}</th>
-                            <th style={{ width: 140 }}>Issue Date</th>
-                            <th style={{ width: 140 }}>Expiry Date</th>
-                            <th style={{ width: 150 }}>Status / Days</th>
-                            <th>Notes</th>
-                            <th style={{ textAlign: 'center', width: 140 }}>Actions</th>
+                            {recordsCols.colOrder.map((colId, index) => {
+                              if (!recordsCols.colVisible[colId]) return null
+                              let label = recordsCols.friendlyNames[colId]
+                              if (colId === 'holderName') {
+                                label = getHolderFieldLabel()
+                              } else if (colId === 'documentNumber') {
+                                label = getDocNumberLabel()
+                              } else if (colId === 'documentType') {
+                                label = getDocTypeLabel()
+                              }
+                              let style = { cursor: 'move', userSelect: 'none' }
+                              if (colId === 'issueDate' || colId === 'expiryDate') {
+                                style.width = '140px'
+                              } else if (colId === 'status') {
+                                style.width = '150px'
+                              } else if (colId === 'actions') {
+                                style.textAlign = 'center'
+                                style.width = '140px'
+                              }
+                              return (
+                                <th
+                                  key={colId}
+                                  draggable
+                                  onDragStart={(e) => recordsCols.handleDragStart(e, index)}
+                                  onDragOver={(e) => e.preventDefault()}
+                                  onDrop={(e) => recordsCols.handleDrop(e, index)}
+                                  style={style}
+                                  title="Drag to rearrange column order"
+                                >
+                                  {label}
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
@@ -761,29 +995,60 @@ export default function IndividualManagement({ initialIndividualId, onClearIniti
                             const expiryInfo = getDaysLeftInfo(r.expiryDate)
                             return (
                               <tr key={r.id}>
-                                <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.holderName || '—'}</td>
-                                <td style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
-                                <td>{r.documentType || '—'}</td>
-                                <td>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                                <td>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                                <td>
-                                  <div className="d-flex flex-column">
-                                    <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
-                                  </div>
-                                </td>
-                                <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
-                                  {r.notes || '—'}
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                                    <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
-                                      <EditIcon size={14} />
-                                    </Button>
-                                    <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
-                                      <TrashIcon size={14} />
-                                    </Button>
-                                  </div>
-                                </td>
+                                {recordsCols.colOrder.map((colId) => {
+                                  if (!recordsCols.colVisible[colId]) return null
+                                  switch (colId) {
+                                    case 'holderName':
+                                      return (
+                                        <td key={colId} style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.holderName || '—'}</td>
+                                      )
+                                    case 'documentNumber':
+                                      return (
+                                        <td key={colId} style={{ fontVariantNumeric: 'tabular-nums' }}>{r.documentNumber || '—'}</td>
+                                      )
+                                    case 'documentType':
+                                      return (
+                                        <td key={colId}>{r.documentType || '—'}</td>
+                                      )
+                                    case 'issueDate':
+                                      return (
+                                        <td key={colId}>{r.issueDate ? new Date(r.issueDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                      )
+                                    case 'expiryDate':
+                                      return (
+                                        <td key={colId}>{r.expiryDate ? new Date(r.expiryDate).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                                      )
+                                    case 'status':
+                                      return (
+                                        <td key={colId}>
+                                          <div className="d-flex flex-column">
+                                            <span className={`small ${expiryInfo.cls}`}>{expiryInfo.text}</span>
+                                          </div>
+                                        </td>
+                                      )
+                                    case 'notes':
+                                      return (
+                                        <td key={colId} style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.notes}>
+                                          {r.notes || '—'}
+                                        </td>
+                                      )
+                                    case 'actions':
+                                      return (
+                                        <td key={colId}>
+                                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                                            <Button variant="outline-warning" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleOpenRecordModal(r)}>
+                                              <EditIcon size={14} />
+                                            </Button>
+                                            <Button variant="outline-danger" size="sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center' }} onClick={() => handleDeleteRecord(r)}>
+                                              <TrashIcon size={14} />
+                                            </Button>
+                                          </div>
+                                        </td>
+                                      )
+                                    default:
+                                      return null
+                                  }
+                                })}
                               </tr>
                             )
                           })}

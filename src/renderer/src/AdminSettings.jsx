@@ -10,7 +10,8 @@ import {
   ApplicationIcon,
   SettingsIcon,
   SaveIcon,
-  RefreshIcon
+  RefreshIcon,
+  PlaneIcon
 } from './Icons'
 
 function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
@@ -24,14 +25,37 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
   const [categories, setCategories] = useState([])
   const [categoryName, setCategoryName] = useState('')
   const [categorySaving, setCategorySaving] = useState(false)
+  const [editingCategoryId, setEditingCategoryId] = useState(null)
+
+  // ── Travels Category state ──
+  const [travelCategoryName, setTravelCategoryName] = useState('')
+  const [travelCategorySaving, setTravelCategorySaving] = useState(false)
+  const [editingTravelCategoryId, setEditingTravelCategoryId] = useState(null)
+
+  // ── Govt Entity state ──
+  const [govtEntities, setGovtEntities] = useState([])
+  const [govtEntityName, setGovtEntityName] = useState('')
+  const [govtEntitySaving, setGovtEntitySaving] = useState(false)
+  const [editingGovtEntityId, setEditingGovtEntityId] = useState(null)
+
+  // ── Travel Supplier state ──
+  const [travelSuppliers, setTravelSuppliers] = useState([])
+  const [travelSupplierName, setTravelSupplierName] = useState('')
+  const [travelSupplierSaving, setTravelSupplierSaving] = useState(false)
+  const [editingTravelSupplierId, setEditingTravelSupplierId] = useState(null)
 
   // ── Service state ──
   const [services, setServices] = useState([])
   const [serviceName, setServiceName] = useState('')
-  const [servicePrice, setServicePrice] = useState('')
   const [serviceCategoryId, setServiceCategoryId] = useState('')
   const [serviceSaving, setServiceSaving] = useState(false)
   const [editingServiceId, setEditingServiceId] = useState(null)
+
+  // ── Travels Service state ──
+  const [travelServiceName, setTravelServiceName] = useState('')
+  const [travelServiceCategoryId, setTravelServiceCategoryId] = useState('')
+  const [travelServiceSaving, setTravelServiceSaving] = useState(false)
+  const [editingTravelServiceId, setEditingTravelServiceId] = useState(null)
 
   // ── Payment card state ──
   const [paymentCards, setPaymentCards] = useState([])
@@ -177,7 +201,9 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
           loadCategories(),
           loadServices(),
           loadPaymentCards(),
-          loadUsers()
+          loadUsers(),
+          loadGovtEntities(),
+          loadTravelSuppliers()
         ])
       } else {
         setError(`Restore failed: ${res.error}`)
@@ -225,13 +251,29 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
     } catch (err) { setError(err.message) }
   }, [])
 
+  const loadGovtEntities = useCallback(async () => {
+    try {
+      const result = await window.api.fetchGovtEntities()
+      if (result.success) setGovtEntities(result.data)
+    } catch (err) { setError(err.message) }
+  }, [])
+
+  const loadTravelSuppliers = useCallback(async () => {
+    try {
+      const result = await window.api.fetchTravelSuppliers()
+      if (result.success) setTravelSuppliers(result.data)
+    } catch (err) { setError(err.message) }
+  }, [])
+
   useEffect(() => {
     loadCategories()
     loadServices()
     loadPaymentCards()
     loadUsers()
+    loadGovtEntities()
+    loadTravelSuppliers()
     loadDbConfig()
-  }, [loadCategories, loadServices, loadPaymentCards, loadUsers, loadDbConfig])
+  }, [loadCategories, loadServices, loadPaymentCards, loadUsers, loadGovtEntities, loadTravelSuppliers, loadDbConfig])
 
   useEffect(() => {
     if (successMsg) {
@@ -260,34 +302,233 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
     finally { setShopSaving(false) }
   }, [editShopName, editAddress, editPhone, onShopConfigSaved])
 
-  // ── Category submit ──
+  // ── Category submit & handlers ──
   const handleAddCategory = useCallback(async (e) => {
     e.preventDefault()
     if (!categoryName.trim()) return
     try {
       setCategorySaving(true)
       setError(null)
-      const result = await window.api.createCategory({ name: categoryName.trim() })
-      if (result.success) {
-        setCategoryName('')
-        setSuccessMsg(`Category "${result.data.name}" created!`)
-        await loadCategories()
-      } else { setError(result.error) }
+      if (editingCategoryId) {
+        const result = await window.api.updateCategory({
+          id: editingCategoryId,
+          name: categoryName.trim()
+        })
+        if (result.success) {
+          setCategoryName('')
+          setEditingCategoryId(null)
+          setSuccessMsg(`Category updated to "${result.data.name}"!`)
+          await loadCategories()
+        } else { setError(result.error) }
+      } else {
+        const result = await window.api.createCategory({
+          name: categoryName.trim(),
+          isTravel: false
+        })
+        if (result.success) {
+          setCategoryName('')
+          setSuccessMsg(`Category "${result.data.name}" created!`)
+          await loadCategories()
+        } else { setError(result.error) }
+      }
     } catch (err) { setError(err.message) }
     finally { setCategorySaving(false) }
-  }, [categoryName, loadCategories])
+  }, [categoryName, editingCategoryId, loadCategories])
+
+  const handleEditCategory = useCallback((cat) => {
+    setEditingCategoryId(cat.id)
+    setCategoryName(cat.name)
+  }, [])
+
+  const handleCancelCategoryEdit = useCallback(() => {
+    setEditingCategoryId(null)
+    setCategoryName('')
+  }, [])
+
+  const handleDeleteCategory = useCallback(async (cat) => {
+    if (cat.name === 'System') {
+      alert('Cannot delete the System category.')
+      return
+    }
+    if (!window.confirm(`Are you sure you want to delete the category "${cat.name}"?`)) return
+    try {
+      const result = await window.api.deleteCategory({ id: cat.id })
+      if (result.success) {
+        setSuccessMsg(`Category "${cat.name}" deleted!`)
+        await loadCategories()
+      } else { alert(result.error || 'Failed to delete category.') }
+    } catch (err) { alert(err.message) }
+  }, [loadCategories])
+
+  // ── Travels Category submit & handlers ──
+  const handleAddTravelCategory = useCallback(async (e) => {
+    e.preventDefault()
+    if (!travelCategoryName.trim()) return
+    try {
+      setTravelCategorySaving(true)
+      setError(null)
+      if (editingTravelCategoryId) {
+        const result = await window.api.updateCategory({
+          id: editingTravelCategoryId,
+          name: travelCategoryName.trim()
+        })
+        if (result.success) {
+          setTravelCategoryName('')
+          setEditingTravelCategoryId(null)
+          setSuccessMsg(`Travel Category updated to "${result.data.name}"!`)
+          await loadCategories()
+        } else { setError(result.error) }
+      } else {
+        const result = await window.api.createCategory({
+          name: travelCategoryName.trim(),
+          isTravel: true
+        })
+        if (result.success) {
+          setTravelCategoryName('')
+          setSuccessMsg(`Travel Category "${result.data.name}" created!`)
+          await loadCategories()
+        } else { setError(result.error) }
+      }
+    } catch (err) { setError(err.message) }
+    finally { setTravelCategorySaving(false) }
+  }, [travelCategoryName, editingTravelCategoryId, loadCategories])
+
+  const handleEditTravelCategory = useCallback((cat) => {
+    setEditingTravelCategoryId(cat.id)
+    setTravelCategoryName(cat.name)
+  }, [])
+
+  const handleCancelTravelCategoryEdit = useCallback(() => {
+    setEditingTravelCategoryId(null)
+    setTravelCategoryName('')
+  }, [])
+
+  const handleDeleteTravelCategory = useCallback(async (cat) => {
+    if (cat.name === 'System') {
+      alert('Cannot delete the System category.')
+      return
+    }
+    if (!window.confirm(`Are you sure you want to delete the travel category "${cat.name}"?`)) return
+    try {
+      const result = await window.api.deleteCategory({ id: cat.id })
+      if (result.success) {
+        setSuccessMsg(`Travel Category "${cat.name}" deleted!`)
+        await loadCategories()
+      } else { alert(result.error || 'Failed to delete category.') }
+    } catch (err) { alert(err.message) }
+  }, [loadCategories])
+
+  // ── Govt Entity handlers ──
+  const handleEditGovtEntity = useCallback((entity) => {
+    setEditingGovtEntityId(entity.id)
+    setGovtEntityName(entity.name)
+  }, [])
+
+  const handleCancelGovtEntityEdit = useCallback(() => {
+    setEditingGovtEntityId(null)
+    setGovtEntityName('')
+  }, [])
+
+  const handleDeleteGovtEntity = useCallback(async (entity) => {
+    if (!window.confirm(`Are you sure you want to delete the government entity "${entity.name}"?`)) return
+    try {
+      setError(null)
+      const result = await window.api.deleteGovtEntity({ id: entity.id })
+      if (result.success) {
+        setSuccessMsg(`Government Entity "${entity.name}" deleted!`)
+        await loadGovtEntities()
+      } else { setError(result.error) }
+    } catch (err) { setError(err.message) }
+  }, [loadGovtEntities])
+
+  const handleSaveGovtEntity = useCallback(async (e) => {
+    e.preventDefault()
+    if (!govtEntityName.trim()) return
+    try {
+      setGovtEntitySaving(true)
+      setError(null)
+      if (editingGovtEntityId) {
+        const result = await window.api.updateGovtEntity({
+          id: editingGovtEntityId,
+          name: govtEntityName.trim()
+        })
+        if (result.success) {
+          setSuccessMsg(`Government Entity renamed to "${result.data.name}"!`)
+          handleCancelGovtEntityEdit()
+          await loadGovtEntities()
+        } else { setError(result.error) }
+      } else {
+        const result = await window.api.createGovtEntity({ name: govtEntityName.trim() })
+        if (result.success) {
+          setGovtEntityName('')
+          setSuccessMsg(`Government Entity "${result.data.name}" added!`)
+          await loadGovtEntities()
+        } else { setError(result.error) }
+      }
+    } catch (err) { setError(err.message) }
+    finally { setGovtEntitySaving(false) }
+  }, [govtEntityName, editingGovtEntityId, loadGovtEntities, handleCancelGovtEntityEdit])
+
+  // ── Travel Supplier handlers ──
+  const handleEditTravelSupplier = useCallback((supplier) => {
+    setEditingTravelSupplierId(supplier.id)
+    setTravelSupplierName(supplier.name)
+  }, [])
+
+  const handleCancelTravelSupplierEdit = useCallback(() => {
+    setEditingTravelSupplierId(null)
+    setTravelSupplierName('')
+  }, [])
+
+  const handleDeleteTravelSupplier = useCallback(async (supplier) => {
+    if (!window.confirm(`Are you sure you want to delete the travel supplier "${supplier.name}"?`)) return
+    try {
+      setError(null)
+      const result = await window.api.deleteTravelSupplier({ id: supplier.id })
+      if (result.success) {
+        setSuccessMsg(`Travel supplier "${supplier.name}" deleted!`)
+        await loadTravelSuppliers()
+      } else { setError(result.error) }
+    } catch (err) { setError(err.message) }
+  }, [loadTravelSuppliers])
+
+  const handleSaveTravelSupplier = useCallback(async (e) => {
+    e.preventDefault()
+    if (!travelSupplierName.trim()) return
+    try {
+      setTravelSupplierSaving(true)
+      setError(null)
+      if (editingTravelSupplierId) {
+        const result = await window.api.updateTravelSupplier({
+          id: editingTravelSupplierId,
+          name: travelSupplierName.trim()
+        })
+        if (result.success) {
+          setSuccessMsg(`Travel supplier renamed to "${result.data.name}"!`)
+          handleCancelTravelSupplierEdit()
+          await loadTravelSuppliers()
+        } else { setError(result.error) }
+      } else {
+        const result = await window.api.createTravelSupplier({ name: travelSupplierName.trim() })
+        if (result.success) {
+          setTravelSupplierName('')
+          setSuccessMsg(`Travel supplier "${result.data.name}" added!`)
+          await loadTravelSuppliers()
+        } else { setError(result.error) }
+      }
+    } catch (err) { setError(err.message) }
+    finally { setTravelSupplierSaving(false) }
+  }, [travelSupplierName, editingTravelSupplierId, loadTravelSuppliers, handleCancelTravelSupplierEdit])
 
   const handleEditService = useCallback((service) => {
     setEditingServiceId(service.id)
     setServiceName(service.name)
-    setServicePrice(String(service.price))
     setServiceCategoryId(String(service.categoryId))
   }, [])
 
   const handleCancelServiceEdit = useCallback(() => {
     setEditingServiceId(null)
     setServiceName('')
-    setServicePrice('')
     setServiceCategoryId('')
   }, [])
 
@@ -310,7 +551,7 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
   // ── Service submit ──
   const handleSaveService = useCallback(async (e) => {
     e.preventDefault()
-    if (!serviceName.trim() || !servicePrice || !serviceCategoryId) return
+    if (!serviceName.trim() || !serviceCategoryId) return
     try {
       setServiceSaving(true)
       setError(null)
@@ -318,7 +559,7 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
         const result = await window.api.updateService({
           id: editingServiceId,
           name: serviceName.trim(),
-          price: parseFloat(servicePrice),
+          price: 0,
           categoryId: parseInt(serviceCategoryId, 10)
         })
         if (result.success) {
@@ -329,12 +570,11 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
       } else {
         const result = await window.api.createService({
           name: serviceName.trim(),
-          price: parseFloat(servicePrice),
+          price: 0,
           categoryId: parseInt(serviceCategoryId, 10)
         })
         if (result.success) {
           setServiceName('')
-          setServicePrice('')
           setServiceCategoryId('')
           setSuccessMsg(`Service "${result.data.name}" created!`)
           await loadServices()
@@ -342,7 +582,55 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
       }
     } catch (err) { setError(err.message) }
     finally { setServiceSaving(false) }
-  }, [serviceName, servicePrice, serviceCategoryId, editingServiceId, loadServices, handleCancelServiceEdit])
+  }, [serviceName, serviceCategoryId, editingServiceId, loadServices, handleCancelServiceEdit])
+
+  // ── Travels Service handlers ──
+  const handleEditTravelService = useCallback((service) => {
+    setEditingTravelServiceId(service.id)
+    setTravelServiceName(service.name)
+    setTravelServiceCategoryId(String(service.categoryId))
+  }, [])
+
+  const handleCancelTravelServiceEdit = useCallback(() => {
+    setEditingTravelServiceId(null)
+    setTravelServiceName('')
+    setTravelServiceCategoryId('')
+  }, [])
+
+  const handleSaveTravelService = useCallback(async (e) => {
+    e.preventDefault()
+    if (!travelServiceName.trim() || !travelServiceCategoryId) return
+    try {
+      setTravelServiceSaving(true)
+      setError(null)
+      if (editingTravelServiceId) {
+        const result = await window.api.updateService({
+          id: editingTravelServiceId,
+          name: travelServiceName.trim(),
+          price: 0,
+          categoryId: parseInt(travelServiceCategoryId, 10)
+        })
+        if (result.success) {
+          setSuccessMsg(`Travel Service "${result.data.name}" updated!`)
+          handleCancelTravelServiceEdit()
+          await loadServices()
+        } else { setError(result.error) }
+      } else {
+        const result = await window.api.createService({
+          name: travelServiceName.trim(),
+          price: 0,
+          categoryId: parseInt(travelServiceCategoryId, 10)
+        })
+        if (result.success) {
+          setTravelServiceName('')
+          setTravelServiceCategoryId('')
+          setSuccessMsg(`Travel Service "${result.data.name}" created!`)
+          await loadServices()
+        } else { setError(result.error) }
+      }
+    } catch (err) { setError(err.message) }
+    finally { setTravelServiceSaving(false) }
+  }, [travelServiceName, travelServiceCategoryId, editingTravelServiceId, loadServices, handleCancelTravelServiceEdit])
 
   const handleEditCard = useCallback((card) => {
     setEditingCardId(card.id)
@@ -376,7 +664,8 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
       if (editingCardId) {
         const result = await window.api.updatePaymentCard({
           id: editingCardId,
-          bankName: cardBankName.trim()
+          bankName: cardBankName.trim(),
+          isPersonal: false
         })
         if (result.success) {
           setSuccessMsg(`Card renamed to "${result.data.bankName}"!`)
@@ -384,7 +673,10 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
           await loadPaymentCards()
         } else { setError(result.error) }
       } else {
-        const result = await window.api.createPaymentCard({ bankName: cardBankName.trim() })
+        const result = await window.api.createPaymentCard({
+          bankName: cardBankName.trim(),
+          isPersonal: false
+        })
         if (result.success) {
           setCardBankName('')
           setSuccessMsg(`Card "${result.data.bankName}" added!`)
@@ -541,22 +833,204 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
         <div className="admin-card">
           <div className="admin-card-header">
             <span className="admin-card-icon" style={{ background: 'rgba(52,211,153,0.15)', color: 'var(--success)' }}><FolderIcon size={18} /></span>
-            <div><h3>Categories</h3><span className="admin-card-count">{categories.length} total</span></div>
+            <div><h3>Categories</h3><span className="admin-card-count">{categories.filter(c => !c.isTravel).length} total</span></div>
           </div>
           <Form onSubmit={handleAddCategory} className="admin-form">
             <Form.Control type="text" placeholder="Category name (e.g. Immigration)" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="admin-input" />
             <Button type="submit" className="btn-primary-glow admin-btn" disabled={categorySaving || !categoryName.trim()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {categorySaving ? <Spinner animation="border" size="sm" /> : <><PlusIcon size={14} /> Add</>}
+              {categorySaving ? <Spinner animation="border" size="sm" /> : editingCategoryId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
             </Button>
+            {editingCategoryId && (
+              <Button type="button" variant="outline-secondary" className="admin-btn text-light" style={{ padding: '9px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} onClick={handleCancelCategoryEdit}>
+                Cancel
+              </Button>
+            )}
           </Form>
           <div className="admin-table-wrap">
             <Table className="admin-table">
-              <thead><tr><th>ID</th><th>Name</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
               <tbody>
-                {categories.length === 0 ? (
-                  <tr><td colSpan={2} className="admin-empty">No categories yet</td></tr>
-                ) : categories.map((c) => (
-                  <tr key={c.id}><td className="admin-td-id">{c.id}</td><td>{c.name}</td></tr>
+                {categories.filter(c => !c.isTravel).length === 0 ? (
+                  <tr><td colSpan={3} className="admin-empty">No categories yet</td></tr>
+                ) : categories.filter(c => !c.isTravel).map((c) => (
+                  <tr key={c.id}>
+                    <td className="admin-td-id">{c.id}</td>
+                    <td>{c.name}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {c.name !== 'System' ? (
+                        <div className="d-flex justify-content-center gap-2">
+                          <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditCategory(c)}>
+                            <EditIcon size={12} /> Edit
+                          </button>
+                          <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteCategory(c)}>
+                            <TrashIcon size={12} /> Delete
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: '0.75rem' }}>System Reserved</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </div>
+
+        {/* ═══ TRAVELS CATEGORIES ═══ */}
+        <div className="admin-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-primary)' }}><PlaneIcon size={18} /></span>
+            <div><h3>Travels Categories</h3><span className="admin-card-count">{categories.filter(c => c.isTravel).length} total</span></div>
+          </div>
+          <Form onSubmit={handleAddTravelCategory} className="admin-form">
+            <Form.Control type="text" placeholder="Category name (e.g. Flight Tickets)" value={travelCategoryName} onChange={(e) => setTravelCategoryName(e.target.value)} className="admin-input" />
+            <Button type="submit" className="btn-primary-glow admin-btn" disabled={travelCategorySaving || !travelCategoryName.trim()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {travelCategorySaving ? <Spinner animation="border" size="sm" /> : editingTravelCategoryId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
+            </Button>
+            {editingTravelCategoryId && (
+              <Button type="button" variant="outline-secondary" className="admin-btn text-light" style={{ padding: '9px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} onClick={handleCancelTravelCategoryEdit}>
+                Cancel
+              </Button>
+            )}
+          </Form>
+          <div className="admin-table-wrap">
+            <Table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.filter(c => c.isTravel).length === 0 ? (
+                  <tr><td colSpan={3} className="admin-empty">No travels categories yet</td></tr>
+                ) : categories.filter(c => c.isTravel).map((c) => (
+                  <tr key={c.id}>
+                    <td className="admin-td-id">{c.id}</td>
+                    <td>{c.name}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      {c.name !== 'System' ? (
+                        <div className="d-flex justify-content-center gap-2">
+                          <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditTravelCategory(c)}>
+                            <EditIcon size={12} /> Edit
+                          </button>
+                          <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteTravelCategory(c)}>
+                            <TrashIcon size={12} /> Delete
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: '0.75rem' }}>System Reserved</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </div>
+
+        {/* ═══ GOVERNMENT ENTITIES ═══ */}
+        <div className="admin-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}><CompanyIcon size={18} /></span>
+            <div><h3>Govt Entities</h3><span className="admin-card-count">{govtEntities.length} total</span></div>
+          </div>
+          <Form onSubmit={handleSaveGovtEntity} className="admin-form">
+            <Form.Control type="text" placeholder="Entity name (e.g. MOHRE)" value={govtEntityName} onChange={(e) => setGovtEntityName(e.target.value)} className="admin-input" />
+            <Button type="submit" className="btn-primary-glow admin-btn" disabled={govtEntitySaving || !govtEntityName.trim()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {govtEntitySaving ? <Spinner animation="border" size="sm" /> : editingGovtEntityId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
+            </Button>
+            {editingGovtEntityId && (
+              <Button type="button" variant="outline-secondary" className="admin-btn text-light" style={{ padding: '9px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} onClick={handleCancelGovtEntityEdit}>
+                Cancel
+              </Button>
+            )}
+          </Form>
+          <div className="admin-table-wrap">
+            <Table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {govtEntities.length === 0 ? (
+                  <tr><td colSpan={3} className="admin-empty">No government entities yet</td></tr>
+                ) : govtEntities.map((ent) => (
+                  <tr key={ent.id}>
+                    <td className="admin-td-id">{ent.id}</td>
+                    <td>{ent.name}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div className="d-flex justify-content-center gap-2">
+                        <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditGovtEntity(ent)}>
+                          <EditIcon size={12} /> Edit
+                        </button>
+                        <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteGovtEntity(ent)}>
+                          <TrashIcon size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </div>
+
+        {/* ═══ TRAVEL SUPPLIERS ═══ */}
+        <div className="admin-card">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-primary)' }}><PlaneIcon size={18} /></span>
+            <div><h3>Travel Suppliers</h3><span className="admin-card-count">{travelSuppliers.length} total</span></div>
+          </div>
+          <Form onSubmit={handleSaveTravelSupplier} className="admin-form">
+            <Form.Control type="text" placeholder="Supplier name (e.g. Akbar Travels)" value={travelSupplierName} onChange={(e) => setTravelSupplierName(e.target.value)} className="admin-input" />
+            <Button type="submit" className="btn-primary-glow admin-btn" disabled={travelSupplierSaving || !travelSupplierName.trim()} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {travelSupplierSaving ? <Spinner animation="border" size="sm" /> : editingTravelSupplierId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
+            </Button>
+            {editingTravelSupplierId && (
+              <Button type="button" variant="outline-secondary" className="admin-btn text-light" style={{ padding: '9px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} onClick={handleCancelTravelSupplierEdit}>
+                Cancel
+              </Button>
+            )}
+          </Form>
+          <div className="admin-table-wrap">
+            <Table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {travelSuppliers.length === 0 ? (
+                  <tr><td colSpan={3} className="admin-empty">No travel suppliers yet</td></tr>
+                ) : travelSuppliers.map((sup) => (
+                  <tr key={sup.id}>
+                    <td className="admin-td-id">{sup.id}</td>
+                    <td>{sup.name}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div className="d-flex justify-content-center gap-2">
+                        <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditTravelSupplier(sup)}>
+                          <EditIcon size={12} /> Edit
+                        </button>
+                        <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteTravelSupplier(sup)}>
+                          <TrashIcon size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </Table>
@@ -619,16 +1093,15 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
         <div className="admin-card admin-card-wide">
           <div className="admin-card-header">
             <span className="admin-card-icon" style={{ background: 'rgba(96,165,250,0.15)', color: 'var(--info)' }}><ApplicationIcon size={18} /></span>
-            <div><h3>Services</h3><span className="admin-card-count">{services.length} total</span></div>
+            <div><h3>Services</h3><span className="admin-card-count">{services.filter(s => !s.category?.isTravel).length} total</span></div>
           </div>
           <Form onSubmit={handleSaveService} className="admin-form admin-form-services">
             <Form.Control type="text" placeholder="Service name" value={serviceName} onChange={(e) => setServiceName(e.target.value)} className="admin-input" />
-            <Form.Control type="number" step="0.01" min="0" placeholder="Price (AED)" value={servicePrice} onChange={(e) => setServicePrice(e.target.value)} className="admin-input admin-input-price" />
             <Form.Select value={serviceCategoryId} onChange={(e) => setServiceCategoryId(e.target.value)} className="admin-input">
               <option value="">Select category...</option>
-              {categories.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              {categories.filter(c => !c.isTravel).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
             </Form.Select>
-            <Button type="submit" className="btn-primary-glow admin-btn" disabled={serviceSaving || !serviceName.trim() || !servicePrice || !serviceCategoryId} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Button type="submit" className="btn-primary-glow admin-btn" disabled={serviceSaving || !serviceName.trim() || !serviceCategoryId} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {serviceSaving ? <Spinner animation="border" size="sm" /> : editingServiceId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
             </Button>
             {editingServiceId && (
@@ -644,22 +1117,76 @@ function AdminSettings({ shopConfig, onShopConfigSaved, currentUser }) {
                   <th>ID</th>
                   <th>Service Name</th>
                   <th>Category</th>
-                  <th style={{ textAlign: 'right' }}>Price (AED)</th>
                   <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {services.length === 0 ? (
-                  <tr><td colSpan={5} className="admin-empty">No services yet — add categories first</td></tr>
-                ) : services.map((s) => (
+                {services.filter(s => !s.category?.isTravel).length === 0 ? (
+                  <tr><td colSpan={4} className="admin-empty">No services yet — add categories first</td></tr>
+                ) : services.filter(s => !s.category?.isTravel).map((s) => (
                   <tr key={s.id}>
                     <td className="admin-td-id">{s.id}</td>
                     <td>{s.name}</td>
                     <td><span className="admin-category-badge">{s.category?.name || '—'}</span></td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.price.toFixed(2)}</td>
                     <td style={{ textAlign: 'center' }}>
                       <div className="d-flex justify-content-center gap-2">
                         <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditService(s)}>
+                          <EditIcon size={12} /> Edit
+                        </button>
+                        <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteService(s)}>
+                          <TrashIcon size={12} /> Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        </div>
+
+        {/* ═══ TRAVELS SERVICES ═══ */}
+        <div className="admin-card admin-card-wide">
+          <div className="admin-card-header">
+            <span className="admin-card-icon" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-primary)' }}><ApplicationIcon size={18} /></span>
+            <div><h3>Travels Services</h3><span className="admin-card-count">{services.filter(s => s.category?.isTravel).length} total</span></div>
+          </div>
+          <Form onSubmit={handleSaveTravelService} className="admin-form admin-form-services">
+            <Form.Control type="text" placeholder="Service name" value={travelServiceName} onChange={(e) => setTravelServiceName(e.target.value)} className="admin-input" />
+            <Form.Select value={travelServiceCategoryId} onChange={(e) => setTravelServiceCategoryId(e.target.value)} className="admin-input">
+              <option value="">Select category...</option>
+              {categories.filter(c => c.isTravel).map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+            </Form.Select>
+            <Button type="submit" className="btn-primary-glow admin-btn" disabled={travelServiceSaving || !travelServiceName.trim() || !travelServiceCategoryId} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {travelServiceSaving ? <Spinner animation="border" size="sm" /> : editingTravelServiceId ? <><SaveIcon size={14} /> Update</> : <><PlusIcon size={14} /> Add</>}
+            </Button>
+            {editingTravelServiceId && (
+              <Button type="button" variant="outline-secondary" className="admin-btn text-light" style={{ padding: '9px 18px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }} onClick={handleCancelTravelServiceEdit}>
+                Cancel
+              </Button>
+            )}
+          </Form>
+          <div className="admin-table-wrap">
+            <Table className="admin-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Service Name</th>
+                  <th>Category</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {services.filter(s => s.category?.isTravel).length === 0 ? (
+                  <tr><td colSpan={4} className="admin-empty">No travels services yet — add categories first</td></tr>
+                ) : services.filter(s => s.category?.isTravel).map((s) => (
+                  <tr key={s.id}>
+                    <td className="admin-td-id">{s.id}</td>
+                    <td>{s.name}</td>
+                    <td><span className="admin-category-badge">{s.category?.name || '—'}</span></td>
+                    <td style={{ textAlign: 'center' }}>
+                      <div className="d-flex justify-content-center gap-2">
+                        <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem' }} onClick={() => handleEditTravelService(s)}>
                           <EditIcon size={12} /> Edit
                         </button>
                         <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 12px', fontSize: '0.75rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteService(s)}>

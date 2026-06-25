@@ -9,11 +9,30 @@ const api = {
   // Categories
   fetchCategories: () => ipcRenderer.invoke('get-categories'),
   createCategory: (data) => ipcRenderer.invoke('create-category', data),
+  updateCategory: (data) => ipcRenderer.invoke('update-category', data),
+  deleteCategory: (data) => ipcRenderer.invoke('delete-category', data),
 
   // Services
   fetchServices: () => ipcRenderer.invoke('get-services'),
   createService: (data) => ipcRenderer.invoke('create-service', data),
   getAdvanceDepositService: () => ipcRenderer.invoke('get-advance-deposit-service'),
+
+  // Government Entities
+  fetchGovtEntities: () => ipcRenderer.invoke('get-govt-entities'),
+  createGovtEntity: (data) => ipcRenderer.invoke('create-govt-entity', data),
+  updateGovtEntity: (data) => ipcRenderer.invoke('update-govt-entity', data),
+  deleteGovtEntity: (data) => ipcRenderer.invoke('delete-govt-entity', data),
+
+  // Travel Suppliers
+  fetchTravelSuppliers: () => ipcRenderer.invoke('get-travel-suppliers'),
+  createTravelSupplier: (data) => ipcRenderer.invoke('create-travel-supplier', data),
+  updateTravelSupplier: (data) => ipcRenderer.invoke('update-travel-supplier', data),
+  deleteTravelSupplier: (data) => ipcRenderer.invoke('delete-travel-supplier', data),
+
+  // Travel Payments
+  fetchTravelPayments: () => ipcRenderer.invoke('get-travel-payments'),
+  createTravelPayment: (data) => ipcRenderer.invoke('create-travel-payment', data),
+  deleteTravelPayment: (data) => ipcRenderer.invoke('delete-travel-payment', data),
 
   // Payment Cards
   fetchPaymentCards: () => ipcRenderer.invoke('get-payment-cards'),
@@ -49,6 +68,10 @@ const api = {
   // Reports
   getDailyReport: (data) => ipcRenderer.invoke('get-daily-report', data),
   getCardAccounts: (data) => ipcRenderer.invoke('get-card-accounts', data),
+  getAccounts: (data) => ipcRenderer.invoke('get-accounts', data),
+  createAccountTransfer: (data) => ipcRenderer.invoke('create-account-transfer', data),
+  deleteAccountTransfer: (data) => ipcRenderer.invoke('delete-account-transfer', data),
+  updateCardReceiptNet: (data) => ipcRenderer.invoke('update-card-receipt-net', data),
 
   // Users & Auth
   login: (credentials) => ipcRenderer.invoke('login', credentials),
@@ -66,6 +89,7 @@ const api = {
   // Applications Edit/Delete
   updateApplication: (data) => ipcRenderer.invoke('update-application', data),
   deleteApplication: (data) => ipcRenderer.invoke('delete-application', data),
+  settleCardTransaction: (data) => ipcRenderer.invoke('settle-card-transaction', data),
 
   // Database Configuration
   getDbConfig: () => ipcRenderer.invoke('get-db-config'),
@@ -74,12 +98,18 @@ const api = {
   checkDbConnection: () => ipcRenderer.invoke('check-db-connection'),
   backupDatabase: () => ipcRenderer.invoke('backup-database'),
   restoreDatabase: () => ipcRenderer.invoke('restore-database'),
+  fetchEntityPayments: () => ipcRenderer.invoke('get-entity-payments'),
+  createEntityPayment: (data) => ipcRenderer.invoke('create-entity-payment', data),
+  deleteEntityPayment: (data) => ipcRenderer.invoke('delete-entity-payment', data),
   fetchExpenses: () => ipcRenderer.invoke('get-expenses'),
   createExpense: (data) => ipcRenderer.invoke('create-expense', data),
   updateExpense: (data) => ipcRenderer.invoke('update-expense', data),
   deleteExpense: (data) => ipcRenderer.invoke('delete-expense', data),
   getMonthlyReport: (data) => ipcRenderer.invoke('get-monthly-report', data),
-  fetchExpiringDocuments: () => ipcRenderer.invoke('get-expiring-documents')
+  fetchExpiringDocuments: () => ipcRenderer.invoke('get-expiring-documents'),
+  saveFileDialog: (data) => ipcRenderer.invoke('save-file-dialog', data),
+  printToPDF: (data) => ipcRenderer.invoke('print-to-pdf', data),
+  relaunchApp: () => ipcRenderer.invoke('relaunch-app')
 }
 
 if (process.contextIsolated) {

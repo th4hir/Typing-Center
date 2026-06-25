@@ -1,19 +1,22 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AllCommunityModule, themeAlpine } from 'ag-grid-community'
 import { AgGridReact } from 'ag-grid-react'
-import { Modal, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
+import { Modal, Button, Form, Spinner, Alert, Dropdown, Card } from 'react-bootstrap'
 import HomeDashboard from './HomeDashboard'
 import AdminSettings from './AdminSettings'
 import DailyReport from './DailyReport'
-import CardAccounts from './CardAccounts'
+import Accounts from './Accounts'
 import LoginScreen from './LoginScreen'
 import CompanyManagement from './CompanyManagement'
 import IndividualManagement from './IndividualManagement'
 import ExpensesManagement from './ExpensesManagement'
 import MonthlyReport from './MonthlyReport'
-import logo from '../../logo.png'
-import fcLogo from '../../FC LOGO NEW.png'
+import TravelsLedger from './TravelsLedger'
+import { exportToExcel, exportToPDF } from './exportHelper'
+import logo from '../../logo-nobg.png'
+import fcLogo from '../../logo-nobg.png'
 import wallpaper from '../../Wallpaper.png'
+import screenBg from '../../screen.png'
 import {
   HomeIcon,
   PlusIcon,
@@ -35,8 +38,37 @@ import {
   SunIcon,
   MoonIcon,
   BellIcon,
-  BillIcon
+  BillIcon,
+  PlaneIcon,
+  UserIcon,
+  KeyIcon,
+  WarningIcon,
+  SearchIcon
 } from './Icons'
+
+const DatabaseIcon = ({ size = 16, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <ellipse cx="12" cy="5" rx="9" ry="3" />
+    <path d="M3 5V19A9 3 0 0 0 21 19V5" />
+    <path d="M3 12A9 3 0 0 0 21 12" />
+  </svg>
+)
+
+const ServerIcon = ({ size = 16, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+    <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+    <line x1="6" y1="6" x2="6.01" y2="6" />
+    <line x1="6" y1="18" x2="6.01" y2="18" />
+  </svg>
+)
+
+const PortIcon = ({ size = 16, className = "" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+)
 
 // ─── Custom AG Grid Themes (TAMM Style) ──────────────────────────────
 const lightGridTheme = themeAlpine.withParams({
@@ -117,12 +149,30 @@ const emptyForm = {
   emiratesId: '',
   companyId: '',
   serviceId: '',
-  serviceCharge: '',
+  serviceCharge: '', // Customer Fee (total)
+  typingFee: '',     // Typing Fee (profit)
+  paidAmount: '',    // Paid Amount by customer
   customerPayment: 'Cash',
   govtFee: '',
   govtPayment: 'Cash',
   status: 'Pending',
-  govtEntity: ''
+  govtEntity: '',
+  govtPaid: ''
+}
+
+function getMonthRange() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const fmt = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+  return { startDate: fmt(start), endDate: fmt(end) }
+}
+
+const formatDate = (dateVal) => {
+  if (!dateVal) return '—'
+  const d = new Date(dateVal)
+  if (isNaN(d.getTime())) return String(dateVal)
+  return d.toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 // ─── App Component ───────────────────────────────────────────
@@ -134,6 +184,8 @@ function App() {
   const [appCompanyId, setAppCompanyId] = useState(null)
   const [appIndividualId, setAppIndividualId] = useState(null)
   const [saveToDirectory, setSaveToDirectory] = useState(false)
+  const [appStartDate, setAppStartDate] = useState(() => getMonthRange().startDate)
+  const [appEndDate, setAppEndDate] = useState(() => getMonthRange().endDate)
 
   // ── Theme Management ──
   const [theme, setTheme] = useState(() => {
@@ -193,9 +245,50 @@ function App() {
   const [addingCategory, setAddingCategory] = useState(false)
   const [showAddService, setShowAddService] = useState(false)
   const [newServiceName, setNewServiceName] = useState('')
-  const [newServicePrice, setNewServicePrice] = useState('')
   const [newServiceCategoryId, setNewServiceCategoryId] = useState('')
   const [addingService, setAddingService] = useState(false)
+
+  const filteredApplications = useMemo(() => {
+    let result = applications
+
+    if (appStartDate && appEndDate) {
+      const start = new Date(appStartDate)
+      const end = new Date(appEndDate)
+      start.setHours(0, 0, 0, 0)
+      end.setHours(23, 59, 59, 999)
+
+      result = result.filter(a => {
+        const d = new Date(a.createdAt)
+        return d >= start && d <= end
+      })
+    }
+
+    if (gridFilter === 'credit') {
+      return result.filter(a => a.balance > 0 && a.status !== 'Rejected')
+    }
+    if (gridFilter === 'credit-company') {
+      return result.filter(a => a.balance > 0 && a.status !== 'Rejected' && a.customerType === 'Company')
+    }
+    if (gridFilter === 'credit-individual') {
+      return result.filter(a => a.balance > 0 && a.status !== 'Rejected' && a.customerType === 'Individual')
+    }
+    if (gridFilter === 'pending-govt') {
+      return result.filter(a => (a.status === 'Pending' || a.status === 'In Progress') && a.govtPayment !== 'N/A')
+    }
+    return result
+  }, [applications, gridFilter, appStartDate, appEndDate])
+
+  // ── Govt Entity state & inline add ──
+  const [govtEntities, setGovtEntities] = useState([])
+  const [showAddGovtEntity, setShowAddGovtEntity] = useState(false)
+  const [newGovtEntityName, setNewGovtEntityName] = useState('')
+  const [addingGovtEntity, setAddingGovtEntity] = useState(false)
+
+  // ── Travel Supplier state & inline add ──
+  const [travelSuppliers, setTravelSuppliers] = useState([])
+  const [showAddTravelSupplier, setShowAddTravelSupplier] = useState(false)
+  const [newTravelSupplierName, setNewTravelSupplierName] = useState('')
+  const [addingTravelSupplier, setAddingTravelSupplier] = useState(false)
 
   const companiesRef = useRef(companies)
   useEffect(() => {
@@ -213,21 +306,47 @@ function App() {
   }, [paymentCards])
 
   // ── Column Visibility states ──
-  const [visibleCols, setVisibleCols] = useState({
-    id: true,
-    customerName: true,
-    customerType: true,
-    emiratesId: true,
-    service: true,
-    serviceCharge: true,
-    govtFee: true,
-    typingFee: true,
-    customerPayment: true,
-    createdBy: true,
-    createdAt: true,
-    status: true,
-    govtEntity: true,
-    actions: true
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try {
+      const stored = localStorage.getItem('grid_visible_cols')
+      return stored ? JSON.parse(stored) : {
+        id: true,
+        customerName: true,
+        customerType: true,
+        emiratesId: true,
+        service: true,
+        serviceCharge: true,
+        govtFee: true,
+        typingFee: true,
+        paidAmount: true,
+        balance: true,
+        customerPayment: true,
+        createdBy: true,
+        createdAt: true,
+        status: true,
+        govtEntity: true,
+        actions: true
+      }
+    } catch {
+      return {
+        id: true,
+        customerName: true,
+        customerType: true,
+        emiratesId: true,
+        service: true,
+        serviceCharge: true,
+        govtFee: true,
+        typingFee: true,
+        paidAmount: true,
+        balance: true,
+        customerPayment: true,
+        createdBy: true,
+        createdAt: true,
+        status: true,
+        govtEntity: true,
+        actions: true
+      }
+    }
   })
 
   const getFriendlyColName = useCallback((col) => {
@@ -237,10 +356,12 @@ function App() {
       case 'customerType': return 'Customer Type'
       case 'emiratesId': return 'Company / EID'
       case 'service': return 'Service'
-      case 'serviceCharge': return 'Received'
-      case 'govtFee': return 'Paid'
-      case 'typingFee': return 'Profit'
-      case 'customerPayment': return 'Payment Method'
+      case 'serviceCharge': return 'Customer Fee'
+      case 'govtFee': return 'Govt Fee'
+      case 'typingFee': return 'Typing Fee'
+      case 'paidAmount': return 'Paid Amount'
+      case 'balance': return 'Balance'
+      case 'customerPayment': return 'Paid By'
       case 'createdBy': return 'Staff'
       case 'createdAt': return 'Date'
       case 'status': return 'Status'
@@ -251,8 +372,45 @@ function App() {
   }, [])
 
   const handleToggleColumn = useCallback((col) => {
-    setVisibleCols(prev => ({ ...prev, [col]: !prev[col] }))
+    setVisibleCols(prev => {
+      const updated = { ...prev, [col]: !prev[col] }
+      localStorage.setItem('grid_visible_cols', JSON.stringify(updated))
+      if (gridRef.current && gridRef.current.api) {
+        gridRef.current.api.setColumnsVisible([col], updated[col]);
+        // Immediately save the updated column state (which includes visibility)
+        const columnState = gridRef.current.api.getColumnState();
+        localStorage.setItem('grid_column_state', JSON.stringify(columnState));
+      }
+      return updated
+    })
   }, [])
+
+  const saveColumnState = useCallback(() => {
+    if (gridRef.current && gridRef.current.api) {
+      const columnState = gridRef.current.api.getColumnState();
+      localStorage.setItem('grid_column_state', JSON.stringify(columnState));
+    }
+  }, []);
+
+  const onGridReady = useCallback((params) => {
+    const savedState = localStorage.getItem('grid_column_state');
+    if (savedState) {
+      try {
+        params.api.applyColumnState({
+          state: JSON.parse(savedState),
+          applyOrder: true,
+        });
+      } catch (err) {
+        console.error('Failed to restore column state:', err);
+      }
+    } else {
+      // Hide columns that are unchecked in initial visibleCols state
+      const colsToHide = Object.keys(visibleCols).filter(col => !visibleCols[col]);
+      if (colsToHide.length > 0) {
+        params.api.setColumnsVisible(colsToHide, false);
+      }
+    }
+  }, [visibleCols]);
 
   // ── Database Connection states ──
   const [showDbConnectionSetup, setShowDbConnectionSetup] = useState(false)
@@ -341,9 +499,25 @@ function App() {
     } catch (err) { console.error(err) }
   }, [])
 
+  const loadGovtEntities = useCallback(async () => {
+    try {
+      const result = await window.api.fetchGovtEntities()
+      if (result.success) setGovtEntities(result.data)
+    } catch (err) { console.error(err) }
+  }, [])
+
+  const loadTravelSuppliers = useCallback(async () => {
+    try {
+      const result = await window.api.fetchTravelSuppliers()
+      if (result.success) setTravelSuppliers(result.data)
+    } catch (err) { console.error(err) }
+  }, [])
+
   const verifyDatabaseConnection = useCallback(async () => {
     try {
       setCheckingDb(true)
+      // Add a 1.5s delay to show the connecting splash screen
+      await new Promise(resolve => setTimeout(resolve, 1500))
       const res = await window.api.checkDbConnection()
       if (res.success) {
         setShowDbConnectionSetup(false)
@@ -354,6 +528,8 @@ function App() {
         loadServices()
         loadPaymentCards()
         loadCompanies()
+        loadGovtEntities()
+        loadTravelSuppliers()
       } else {
         setShowDbConnectionSetup(true)
         const cfgRes = await window.api.getDbConfig()
@@ -373,7 +549,7 @@ function App() {
     } finally {
       setCheckingDb(false)
     }
-  }, [loadShopConfig, loadApplications, loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
+  }, [loadShopConfig, loadApplications, loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies, loadTravelSuppliers])
 
   // ── Modal ──
   const [showModal, setShowModal] = useState(false)
@@ -387,18 +563,36 @@ function App() {
   const [newCompanyName, setNewCompanyName] = useState('')
   const [addingCompany, setAddingCompany] = useState(false)
 
+  // ── Advance Type for Deposit Tab ──
+  const [advanceType, setAdvanceType] = useState('company') // 'company' | 'individual'
+
+  // ── Client Type for Travels Tab ──
+  const [travelClientType, setTravelClientType] = useState('individual') // 'individual' | 'company'
+
+  const handleTravelClientTypeChange = useCallback((type) => {
+    setTravelClientType(type)
+    setFormData(prev => ({
+      ...prev,
+      customerName: '',
+      phone: '',
+      emiratesId: '',
+      companyId: ''
+    }))
+  }, [])
+
   const shopName = shopConfig?.shopName || 'First Choice'
 
-  // ── Computed typing fee ──
-  const typingFee = useMemo(() => {
-    const svc = services.find(s => s.id === parseInt(formData.serviceId, 10))
-    if (svc && svc.name === 'Advance Deposit') {
-      return 0
-    }
-    const charge = parseFloat(formData.serviceCharge) || 0
-    const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
-    return Math.max(0, charge - govt)
-  }, [formData.serviceCharge, formData.govtFee, formData.govtPayment, formData.serviceId, services])
+  // ── Computed customer fee and balance ──
+  const customerFee = useMemo(() => {
+    const govt = parseFloat(formData.govtFee) || 0
+    const typing = parseFloat(formData.typingFee) || 0
+    return govt + typing
+  }, [formData.govtFee, formData.typingFee])
+
+  const balanceVal = useMemo(() => {
+    const paid = parseFloat(formData.paidAmount) || 0
+    return customerFee - paid
+  }, [customerFee, formData.paidAmount])
 
   useEffect(() => {
     verifyDatabaseConnection()
@@ -424,7 +618,7 @@ function App() {
       if (name === 'serviceId' && value) {
         const svc = services.find(s => s.id === parseInt(value, 10))
         if (svc) {
-          updated.serviceCharge = String(svc.price)
+          updated.typingFee = String(svc.price)
           const nameLower = svc.name.toLowerCase()
           if (svc.name === 'Advance Deposit') {
             updated.govtPayment = 'N/A'
@@ -441,78 +635,211 @@ function App() {
           ) {
             updated.govtPayment = 'N/A'
             updated.govtFee = '0'
+          } else {
+            updated.govtFee = ''
           }
+          const govt = parseFloat(updated.govtFee) || 0
+          const typing = parseFloat(updated.typingFee) || 0
+          updated.serviceCharge = String(govt + typing)
+          updated.paidAmount = String(govt + typing)
         }
       }
-      if (name === 'govtPayment' && value === 'N/A') {
+      if (name === 'companyId' && value) {
+        const comp = companiesRef.current.find(c => String(c.id) === value)
+        if (comp && comp.advanceBalance > 0) {
+          updated.customerPayment = 'Advance'
+        } else if (updated.customerPayment === 'Advance') {
+          updated.customerPayment = 'Cash'
+        }
+      }
+      if (name === 'customerName' && value) {
+        const ind = individuals.find(i => i.name.toLowerCase().trim() === value.toLowerCase().trim())
+        if (ind && ind.advanceBalance > 0) {
+          updated.customerPayment = 'Advance'
+        } else if (updated.customerPayment === 'Advance') {
+          updated.customerPayment = 'Cash'
+        }
+      }
+      if (name === 'govtEntity' && value === 'N/A') {
         updated.govtFee = '0'
+        const govt = parseFloat(updated.govtFee) || 0
+        const typing = parseFloat(updated.typingFee) || 0
+        updated.serviceCharge = String(govt + typing)
+        updated.paidAmount = String(govt + typing)
+      }
+      if (modalTab === 'travels') {
+        if (name === 'govtFee' || name === 'serviceCharge') {
+          const price = parseFloat(updated.govtFee) || 0
+          const ourFee = parseFloat(updated.serviceCharge) || 0
+          updated.typingFee = String(ourFee - price)
+          if (name === 'serviceCharge') {
+            updated.paidAmount = String(ourFee)
+          }
+        }
+      } else {
+        if (name === 'govtFee' || name === 'typingFee') {
+          const govt = parseFloat(updated.govtFee) || 0
+          const typing = parseFloat(updated.typingFee) || 0
+          updated.serviceCharge = String(govt + typing)
+          updated.paidAmount = String(govt + typing)
+        }
+      }
+      if (updated.customerPayment === 'Advance') {
+        const govt = parseFloat(updated.govtFee) || 0
+        const typing = parseFloat(updated.typingFee) || 0
+        const fee = modalTab === 'travels' ? (parseFloat(updated.serviceCharge) || 0) : (govt + typing)
+        updated.paidAmount = String(fee)
       }
       return updated
     })
-  }, [services])
+  }, [services, individuals, modalTab])
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault()
     setFormError(null)
 
-    if (!formData.customerName.trim() || !formData.serviceId) {
-      setFormError('Customer name and service are required.')
-      return
-    }
+    const isAdvance = modalTab === 'advance'
+    const isTravels = modalTab === 'travels'
 
-    if (modalTab === 'company' && !formData.companyId) {
-      setFormError('Please select a company.')
-      return
+    if (isTravels) {
+      if (!formData.govtEntity || !formData.govtEntity.trim()) {
+        setFormError('Travel Supplier / Entity is required.')
+        return
+      }
+      if (travelClientType === 'company' && !formData.companyId) {
+        setFormError('Please select a company.')
+        return
+      }
+      if (!formData.customerName.trim()) {
+        setFormError(travelClientType === 'company' ? 'Traveller name is required.' : 'Customer name is required.')
+        return
+      }
+      if (!formData.serviceId) {
+        setFormError('Please select a service.')
+        return
+      }
+    } else if (!isAdvance) {
+      if (!formData.customerName.trim()) {
+        setFormError('Customer name is required.')
+        return
+      }
+      if (!formData.serviceId) {
+        setFormError('Please select a service.')
+        return
+      }
+      if (modalTab === 'company' && !formData.companyId) {
+        setFormError('Please select a company.')
+        return
+      }
+    } else {
+      if (advanceType === 'company' && !formData.companyId) {
+        setFormError('Please select a company.')
+        return
+      }
+      if (advanceType === 'individual' && !formData.customerName.trim()) {
+        setFormError('Please enter the customer name.')
+        return
+      }
+      if (advanceType === 'individual' && !formData.phone.trim()) {
+        setFormError('Phone number is compulsory for individual advance deposits.')
+        return
+      }
+      const amt = parseFloat(formData.paidAmount) || 0
+      if (amt <= 0) {
+        setFormError('Please enter a valid positive deposit amount.')
+        return
+      }
     }
 
     // Resolve company name for storage
     let companyName = ''
-    if (modalTab === 'company' && formData.companyId) {
+    if ((modalTab === 'company' || (isAdvance && advanceType === 'company') || (modalTab === 'travels' && travelClientType === 'company')) && formData.companyId) {
       const comp = companiesRef.current.find(c => c.id === parseInt(formData.companyId, 10))
       companyName = comp ? comp.name : ''
     }
 
     try {
       setSaving(true)
-      const charge = parseFloat(formData.serviceCharge) || 0
-      const govt = formData.govtPayment === 'N/A' ? 0 : (parseFloat(formData.govtFee) || 0)
-      const entity = formData.govtPayment === 'N/A' ? '' : (formData.govtEntity || '').trim()
+      const selectedSvc = isAdvance
+        ? services.find(s => s.name === 'Advance Deposit')
+        : services.find(s => s.id === parseInt(formData.serviceId, 10))
+
+      if (!selectedSvc) {
+        setFormError(isAdvance ? 'System service "Advance Deposit" not found in database.' : 'Service not found.')
+        setSaving(false)
+        return
+      }
+
+      const isTravels = modalTab === 'travels'
+      const govt = isAdvance ? 0 : (parseFloat(formData.govtFee) || 0)
+      const customerFee = isTravels
+        ? (parseFloat(formData.serviceCharge) || 0)
+        : (isAdvance ? (parseFloat(formData.paidAmount) || 0) : (govt + (parseFloat(formData.typingFee) || 0)))
+      const typing = isTravels ? (customerFee - govt) : (isAdvance ? 0 : (parseFloat(formData.typingFee) || 0))
+      const govtPaid = isTravels ? (parseFloat(formData.govtPaid) || 0) : 0
+      const paid = parseFloat(formData.paidAmount) || 0
+      const balance = customerFee - paid
+      const entity = isAdvance ? '' : (formData.govtEntity || '').trim()
+      const isDeposit = selectedSvc && selectedSvc.name === 'Advance Deposit'
+      const govtPayMode = 'N/A'
+
+      const isCompanyClient = modalTab === 'company' || (isAdvance && advanceType === 'company') || (modalTab === 'travels' && travelClientType === 'company')
+      const isIndividualClient = modalTab === 'individual' || (isAdvance && advanceType === 'individual') || (modalTab === 'travels' && travelClientType === 'individual')
+
+      const isCardOrTransfer = formData.customerPayment === 'Card' || formData.customerPayment === 'Account Transfer' || formData.customerPayment === 'Cheque'
+      const cardReceiptNet = 0
+      const receivingAccount = null
+
       let result
       if (editingApplicationId) {
         result = await window.api.updateApplication({
           id: editingApplicationId,
-          customerName: formData.customerName.trim(),
+          customerName: isAdvance
+            ? (advanceType === 'company' ? 'Company Representative' : formData.customerName.trim())
+            : formData.customerName.trim(),
           phone: formData.phone.trim(),
-          emiratesId: modalTab === 'company' ? companyName : formData.emiratesId.trim(),
-          customerType: modalTab === 'company' ? 'Company' : 'Individual',
-          serviceId: parseInt(formData.serviceId, 10),
-          serviceCharge: charge,
+          emiratesId: isCompanyClient ? companyName : formData.emiratesId.trim(),
+          customerType: isCompanyClient ? 'Company' : 'Individual',
+          serviceId: selectedSvc.id,
+          serviceCharge: customerFee,
           customerPayment: formData.customerPayment,
+          paidAmount: paid,
+          balance: balance,
+          cardReceiptNet,
+          receivingAccount,
           govtFee: govt,
-          govtPayment: formData.govtPayment,
-          govtEntity: entity,
-          typingFee: Math.max(0, charge - govt),
-          status: formData.status || 'Pending'
+          govtPayment: govtPayMode,
+          govtEntity: isDeposit ? '' : entity,
+          govtPaid: govtPaid,
+          typingFee: typing,
+          status: isAdvance ? 'Completed' : (formData.status || 'Pending')
         })
       } else {
         result = await window.api.createApplication({
-          customerName: formData.customerName.trim(),
+          customerName: isAdvance
+            ? (advanceType === 'company' ? 'Company Representative' : formData.customerName.trim())
+            : formData.customerName.trim(),
           phone: formData.phone.trim(),
-          emiratesId: modalTab === 'company' ? companyName : formData.emiratesId.trim(),
-          customerType: modalTab === 'company' ? 'Company' : 'Individual',
-          serviceId: parseInt(formData.serviceId, 10),
-          serviceCharge: charge,
+          emiratesId: isCompanyClient ? companyName : formData.emiratesId.trim(),
+          customerType: isCompanyClient ? 'Company' : 'Individual',
+          serviceId: selectedSvc.id,
+          serviceCharge: customerFee,
           customerPayment: formData.customerPayment,
+          paidAmount: paid,
+          balance: balance,
+          cardReceiptNet,
+          receivingAccount,
           govtFee: govt,
-          govtPayment: formData.govtPayment,
-          govtEntity: entity,
-          typingFee: Math.max(0, charge - govt),
-          status: 'Pending',
+          govtPayment: govtPayMode,
+          govtEntity: isDeposit ? '' : entity,
+          govtPaid: govtPaid,
+          typingFee: typing,
+          status: isAdvance ? 'Completed' : 'Pending',
           createdBy: currentUser?.username || ''
         })
       }
       if (result.success) {
-        if (modalTab === 'individual' && saveToDirectory) {
+        if (isIndividualClient && (saveToDirectory || isAdvance || balance > 0)) {
           try {
             await window.api.createIndividual({
               name: formData.customerName.trim(),
@@ -528,10 +855,12 @@ function App() {
         setEditingApplicationId(null)
         setSaveToDirectory(false)
         await loadApplications()
+        await loadCompanies()
+        await loadIndividuals()
       } else { setFormError(result.error) }
     } catch (err) { setFormError(err.message) }
     finally { setSaving(false) }
-  }, [formData, modalTab, companies, loadApplications, editingApplicationId, currentUser, saveToDirectory])
+  }, [formData, modalTab, travelClientType, advanceType, companies, loadApplications, loadCompanies, loadIndividuals, editingApplicationId, currentUser, saveToDirectory])
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false)
@@ -546,8 +875,11 @@ function App() {
     setNewCategoryName('')
     setShowAddService(false)
     setNewServiceName('')
-    setNewServicePrice('')
     setNewServiceCategoryId('')
+    setShowAddGovtEntity(false)
+    setNewGovtEntityName('')
+    setShowAddTravelSupplier(false)
+    setNewTravelSupplierName('')
   }, [])
 
   const handleEditApplicationClick = useCallback((appData) => {
@@ -556,11 +888,24 @@ function App() {
     loadServices()
     loadPaymentCards()
     loadCompanies()
+    loadGovtEntities()
+    loadTravelSuppliers()
 
     setEditingApplicationId(appData.id)
 
     const isCompany = appData.customerType === 'Company'
-    setModalTab(isCompany ? 'company' : 'individual')
+    const isAdvance = appData.service?.name === 'Advance Deposit' && appData.service?.category?.name === 'System'
+    const isTravels = appData.service?.category?.isTravel === true
+
+    if (isAdvance) {
+      setModalTab('advance')
+      setAdvanceType(isCompany ? 'company' : 'individual')
+    } else if (isTravels) {
+      setModalTab('travels')
+      setTravelClientType(isCompany ? 'company' : 'individual')
+    } else {
+      setModalTab(isCompany ? 'company' : 'individual')
+    }
 
     let companyId = ''
     if (isCompany) {
@@ -579,16 +924,19 @@ function App() {
       companyId: companyId,
       serviceId: String(appData.serviceId),
       serviceCharge: String(appData.serviceCharge),
+      typingFee: String(appData.typingFee !== undefined && appData.typingFee !== null ? appData.typingFee : (appData.serviceCharge - appData.govtFee)),
+      paidAmount: String(appData.paidAmount !== undefined && appData.paidAmount !== null ? appData.paidAmount : appData.serviceCharge),
       customerPayment: appData.customerPayment || 'Cash',
       govtFee: String(appData.govtFee),
       govtPayment: appData.govtPayment || 'Cash',
       govtEntity: appData.govtEntity || '',
-      status: appData.status || 'Pending'
+      status: appData.status || 'Pending',
+      govtPaid: String(appData.govtPaid !== undefined && appData.govtPaid !== null ? appData.govtPaid : '')
     })
     setSaveToDirectory(false)
 
     setShowModal(true)
-  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
+  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies, loadGovtEntities, loadTravelSuppliers, setTravelClientType, setAdvanceType])
 
   const handleDeleteApplicationClick = useCallback(async (appData) => {
     if (!window.confirm(`Are you sure you want to delete the application for "${appData.customerName}"?`)) return
@@ -597,6 +945,8 @@ function App() {
       const res = await window.api.deleteApplication({ id: appData.id })
       if (res.success) {
         await loadApplications()
+        await loadCompanies()
+        await loadIndividuals()
       } else {
         setError(res.error)
       }
@@ -605,12 +955,60 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [loadApplications])
+  }, [loadApplications, loadCompanies, loadIndividuals])
 
-  const handleOpenModal = useCallback(async () => {
+  const handleExportApplications = useCallback(async (format) => {
+    const headers = ['ID', 'Date', 'Customer Name', 'Customer Type', 'Company / EID', 'Service', 'Govt Fee (AED)', 'Typing Fee (AED)', 'Customer Fee (AED)', 'Paid Amount (AED)', 'Balance (AED)', 'Paid By', 'Staff', 'Status']
+    const rows = filteredApplications.map(a => {
+      const total = a.serviceCharge || 0
+      const paid = a.paidAmount !== undefined && a.paidAmount !== null ? a.paidAmount : a.serviceCharge
+      const balance = total - paid
+      const dateStr = new Date(a.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      return [
+        a.id,
+        dateStr,
+        a.customerName,
+        a.customerType,
+        a.emiratesId || '—',
+        a.service?.name || '—',
+        a.govtFee.toFixed(2),
+        a.typingFee.toFixed(2),
+        total.toFixed(2),
+        paid.toFixed(2),
+        balance.toFixed(2),
+        a.customerPayment,
+        a.createdBy || '—',
+        a.status
+      ]
+    })
+
+    const title = 'Customer Applications Report'
+    const subtitle = `Date Range: ${formatDate(appStartDate)} to ${formatDate(appEndDate)}`
+    const defaultName = `applications_report_${appStartDate}_to_${appEndDate}`
+
+    if (format === 'excel') {
+      const res = await exportToExcel(headers, rows, `${defaultName}.xls`)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    } else {
+      const summaryCards = [
+        { label: 'Total Applications', value: String(filteredApplications.length) },
+        { label: 'Total Sales', value: `AED ${filteredApplications.reduce((s, a) => s + (a.serviceCharge || 0), 0).toFixed(2)}` },
+        { label: 'Total Profit', value: `AED ${filteredApplications.reduce((s, a) => s + (a.typingFee || 0), 0).toFixed(2)}` }
+      ]
+      const res = await exportToPDF(shopConfig, title, subtitle, headers, rows, `${defaultName}.pdf`, summaryCards)
+      if (res.success) alert('Report exported successfully!')
+      else if (res.error !== 'Cancelled') alert(`Export failed: ${res.error}`)
+    }
+  }, [filteredApplications, appStartDate, appEndDate, shopConfig])
+
+  const handleOpenModal = useCallback(async (tab = 'individual', preselectedData = {}) => {
     setShowModal(true)
-    setModalTab('individual')
-    setFormData(emptyForm)
+    setModalTab(tab)
+    setFormData({
+      ...emptyForm,
+      ...preselectedData
+    })
     setSaveToDirectory(false)
     setSelectedCategoryId('')
     await loadCategories()
@@ -618,7 +1016,9 @@ function App() {
     await loadServices()
     await loadPaymentCards()
     await loadCompanies()
-  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies])
+    await loadGovtEntities()
+    await loadTravelSuppliers()
+  }, [loadCategories, loadIndividuals, loadServices, loadPaymentCards, loadCompanies, loadGovtEntities, loadTravelSuppliers])
 
   // ── Tab switch ──
   const handleTabSwitch = useCallback((tab) => {
@@ -627,7 +1027,9 @@ function App() {
     setFormError(null)
     setShowAddCompany(false)
     setNewCompanyName('')
-  }, [])
+    setAdvanceType('company')
+    setTravelClientType('individual')
+  }, [setAdvanceType, setTravelClientType])
 
   // ── Add company inline ──
   const handleAddCompany = useCallback(async () => {
@@ -652,7 +1054,10 @@ function App() {
     if (!newCategoryName.trim()) return
     try {
       setAddingCategory(true)
-      const result = await window.api.createCategory({ name: newCategoryName.trim() })
+      const result = await window.api.createCategory({
+        name: newCategoryName.trim(),
+        isTravel: modalTab === 'travels'
+      })
       if (result.success) {
         await loadCategories()
         setSelectedCategoryId(String(result.data.id))
@@ -663,7 +1068,7 @@ function App() {
       }
     } catch (err) { setFormError(err.message) }
     finally { setAddingCategory(false) }
-  }, [newCategoryName, loadCategories])
+  }, [newCategoryName, loadCategories, modalTab])
 
   // ── Add Service inline ──
   const handleAddServiceInline = useCallback(async () => {
@@ -673,23 +1078,20 @@ function App() {
       setFormError('Please select or specify a category for the new service.')
       return
     }
-    const priceVal = parseFloat(newServicePrice) || 0
     try {
       setAddingService(true)
       const result = await window.api.createService({
         name: newServiceName.trim(),
-        price: priceVal,
+        price: 0,
         categoryId: parseInt(catId, 10)
       })
       if (result.success) {
         await loadServices()
         setFormData(prev => ({
           ...prev,
-          serviceId: String(result.data.id),
-          serviceCharge: String(priceVal)
+          serviceId: String(result.data.id)
         }))
         setNewServiceName('')
-        setNewServicePrice('')
         setNewServiceCategoryId('')
         setShowAddService(false)
       } else {
@@ -697,33 +1099,93 @@ function App() {
       }
     } catch (err) { setFormError(err.message) }
     finally { setAddingService(false) }
-  }, [newServiceName, newServicePrice, newServiceCategoryId, selectedCategoryId, loadServices])
+  }, [newServiceName, newServiceCategoryId, selectedCategoryId, loadServices])
 
-  const filteredApplications = useMemo(() => {
-    if (gridFilter === 'credit') {
-      return applications.filter(a => a.customerPayment === 'Credit' && a.status !== 'Completed' && a.status !== 'Rejected')
+  // ── Add Govt Entity inline ──
+  const handleAddGovtEntityInline = useCallback(async () => {
+    const trimmedName = newGovtEntityName.trim()
+    if (!trimmedName) return
+    try {
+      setAddingGovtEntity(true)
+      const result = await window.api.createGovtEntity({ name: trimmedName })
+      if (result.success) {
+        await loadGovtEntities()
+        setFormData(prev => {
+          const updated = { ...prev, govtEntity: result.data.name }
+          if (result.data.name === 'N/A') {
+            updated.govtFee = '0'
+            const govt = parseFloat(updated.govtFee) || 0
+            const typing = parseFloat(updated.typingFee) || 0
+            updated.serviceCharge = String(govt + typing)
+            updated.paidAmount = String(govt + typing)
+          }
+          return updated
+        })
+        setNewGovtEntityName('')
+        setShowAddGovtEntity(false)
+      } else {
+        setFormError(result.error)
+      }
+    } catch (err) {
+      setFormError(err.message)
+    } finally {
+      setAddingGovtEntity(false)
     }
-    if (gridFilter === 'pending-govt') {
-      return applications.filter(a => (a.status === 'Pending' || a.status === 'In Progress') && a.govtPayment !== 'N/A')
+  }, [newGovtEntityName, loadGovtEntities])
+
+  // ── Add Travel Supplier inline ──
+  const handleAddTravelSupplierInline = useCallback(async () => {
+    const trimmedName = newTravelSupplierName.trim()
+    if (!trimmedName) return
+    try {
+      setAddingTravelSupplier(true)
+      const result = await window.api.createTravelSupplier({ name: trimmedName })
+      if (result.success) {
+        await loadTravelSuppliers()
+        setFormData(prev => ({ ...prev, govtEntity: result.data.name }))
+        setNewTravelSupplierName('')
+        setShowAddTravelSupplier(false)
+      } else {
+        setFormError(result.error)
+      }
+    } catch (err) {
+      setFormError(err.message)
+    } finally {
+      setAddingTravelSupplier(false)
     }
-    return applications
-  }, [applications, gridFilter])
+  }, [newTravelSupplierName, loadTravelSuppliers])
+
+
 
   // ── Grid columns ──
   const columnDefs = useMemo(() => [
-    { headerName: 'ID', field: 'id', width: 70, sortable: true, filter: true, hide: !visibleCols.id },
-    { headerName: 'Customer', field: 'customerName', flex: 1.3, minWidth: 150, sortable: true, filter: true, hide: !visibleCols.customerName },
-    { headerName: 'Type', field: 'customerType', width: 110, sortable: true, filter: true, cellRenderer: CustomerTypeRenderer, hide: !visibleCols.customerType },
-    { headerName: 'Company / EID', field: 'emiratesId', flex: 1, minWidth: 130, sortable: true, filter: true, hide: !visibleCols.emiratesId },
-    { headerName: 'Service', field: 'service', flex: 1, minWidth: 140, sortable: true, filter: true, valueGetter: (p) => p.data?.service?.name || '—', hide: !visibleCols.service },
-    { headerName: 'Received', field: 'serviceCharge', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.serviceCharge },
-    { headerName: 'Paid', field: 'govtFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), hide: !visibleCols.govtFee },
-    { headerName: 'Paid To Entity', field: 'govtEntity', width: 120, sortable: true, filter: true, hide: !visibleCols.govtEntity },
-    { headerName: 'Profit', field: 'typingFee', width: 90, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), cellStyle: { color: '#34d399' }, hide: !visibleCols.typingFee },
-    { headerName: 'Paid By', field: 'customerPayment', width: 110, sortable: true, filter: true, hide: !visibleCols.customerPayment },
-    { headerName: 'Staff', field: 'createdBy', width: 100, sortable: true, filter: true, hide: !visibleCols.createdBy },
-    { headerName: 'Date', field: 'createdAt', width: 120, sortable: true, cellRenderer: DateRenderer, hide: !visibleCols.createdAt },
-    { headerName: 'Status', field: 'status', width: 120, sortable: true, filter: true, cellRenderer: StatusRenderer, hide: !visibleCols.status },
+    { headerName: 'ID', field: 'id', width: 70, sortable: true, filter: true },
+    { headerName: 'Customer', field: 'customerName', flex: 1.3, minWidth: 150, sortable: true, filter: true },
+    { headerName: 'Type', field: 'customerType', width: 110, sortable: true, filter: true, cellRenderer: CustomerTypeRenderer },
+    { headerName: 'Company / EID', field: 'emiratesId', flex: 1, minWidth: 130, sortable: true, filter: true },
+    { headerName: 'Service', field: 'service', flex: 1, minWidth: 140, sortable: true, filter: true, valueGetter: (p) => p.data?.service?.name || '—' },
+    { headerName: 'Govt Fee', field: 'govtFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2) },
+    { headerName: 'Typing Fee', field: 'typingFee', width: 100, sortable: true, valueFormatter: (p) => p.value?.toFixed(2), cellStyle: { color: '#34d399' } },
+    { headerName: 'Customer Fee', field: 'serviceCharge', width: 110, sortable: true, valueFormatter: (p) => p.value?.toFixed(2) },
+    { headerName: 'Paid Amount', field: 'paidAmount', width: 110, sortable: true, valueFormatter: (p) => (p.value !== undefined && p.value !== null ? p.value : p.data?.serviceCharge)?.toFixed(2) },
+    {
+      headerName: 'Balance',
+      field: 'balance',
+      width: 100,
+      sortable: true,
+      valueGetter: (p) => {
+        const total = p.data?.serviceCharge || 0
+        const paid = (p.data?.paidAmount !== undefined && p.data?.paidAmount !== null ? p.data?.paidAmount : p.data?.serviceCharge) || 0
+        return total - paid
+      },
+      valueFormatter: (p) => p.value?.toFixed(2),
+      cellStyle: (p) => p.value > 0 ? { color: '#ef4444', fontWeight: 600 } : null
+    },
+    { headerName: 'Paid To Entity', field: 'govtEntity', width: 120, sortable: true, filter: true },
+    { headerName: 'Paid By', field: 'customerPayment', width: 110, sortable: true, filter: true },
+    { headerName: 'Staff', field: 'createdBy', width: 100, sortable: true, filter: true },
+    { headerName: 'Date', field: 'createdAt', width: 120, sortable: true, cellRenderer: DateRenderer },
+    { headerName: 'Status', field: 'status', width: 120, sortable: true, filter: true, cellRenderer: StatusRenderer },
     {
       headerName: 'Actions',
       field: 'actions',
@@ -734,10 +1196,9 @@ function App() {
       cellRendererParams: {
         onEdit: handleEditApplicationClick,
         onDelete: handleDeleteApplicationClick
-      },
-      hide: !visibleCols.actions
+      }
     }
-  ], [handleEditApplicationClick, handleDeleteApplicationClick, visibleCols])
+  ], [handleEditApplicationClick, handleDeleteApplicationClick])
 
   const defaultColDef = useMemo(() => ({ resizable: true }), [])
 
@@ -781,8 +1242,9 @@ function App() {
       { icon: <IndividualIcon size={18} />, label: 'Individual', page: 'individual' },
       { icon: <ReportIcon size={18} />, label: 'Daily Report', page: 'daily-report' },
       { icon: <ReportIcon size={18} />, label: 'Monthly Report', page: 'monthly-report' },
-      { icon: <CardIcon size={18} />, label: 'Card Accounts', page: 'card-accounts' },
-      { icon: <BillIcon size={18} />, label: 'Expenses / Accounts', page: 'expenses' }
+      { icon: <CardIcon size={18} />, label: 'Accounts', page: 'accounts' },
+      { icon: <PlaneIcon size={18} />, label: 'Travels', page: 'travels-ledger' },
+      { icon: <BillIcon size={18} />, label: 'Expenses', page: 'expenses' }
     ]
     if (currentUser?.role === 'Admin') {
       items.push({ icon: <SettingsIcon size={18} />, label: 'Admin Settings', page: 'settings' })
@@ -796,9 +1258,12 @@ function App() {
       return (
         <HomeDashboard
           applications={applications}
+          companies={companies}
+          individuals={individuals}
           shopName={shopName}
           onNavigate={handleDashboardNavigate}
           onOpenFolder={handleDashboardOpenFolder}
+          onNewApplication={() => handleOpenModal('individual')}
         />
       )
     }
@@ -810,13 +1275,30 @@ function App() {
     }
     if (currentPage === 'daily-report') return <DailyReport />
     if (currentPage === 'monthly-report') return <MonthlyReport />
-    if (currentPage === 'card-accounts') return <CardAccounts />
+    if (currentPage === 'accounts') return <Accounts />
     if (currentPage === 'expenses') return <ExpensesManagement />
+    if (currentPage === 'travels-ledger') {
+      return (
+        <TravelsLedger
+          parentApplications={applications}
+          parentSuppliers={travelSuppliers}
+          parentCards={paymentCards}
+          onNewApplication={(supplierName) => {
+            handleOpenModal('travels', supplierName ? { govtEntity: supplierName } : {})
+          }}
+          onEditApplication={(appId) => {
+            const app = applications.find(a => a.id === appId)
+            if (app) handleEditApplicationClick(app)
+          }}
+        />
+      )
+    }
     if (currentPage === 'company') {
       return (
         <CompanyManagement
           initialCompanyId={appCompanyId}
           onClearInitialId={() => setAppCompanyId(null)}
+          onNewApplication={(company) => handleOpenModal('company', { companyId: String(company.id) })}
         />
       )
     }
@@ -825,6 +1307,7 @@ function App() {
         <IndividualManagement
           initialIndividualId={appIndividualId}
           onClearInitialId={() => setAppIndividualId(null)}
+          onNewApplication={(individual) => handleOpenModal('individual', { customerName: individual.name, phone: individual.phone || '' })}
         />
       )
     }
@@ -836,11 +1319,21 @@ function App() {
             <h1>Applications</h1>
             <p>Manage and track all customer service applications</p>
           </div>
-          <div className="page-header-actions">
-            <button className="btn-outline-subtle" id="btn-export" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ExportIcon size={14} /> Export
-            </button>
-            <button className="btn-primary-glow" id="btn-new-application" onClick={handleOpenModal} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="page-header-actions" style={{ display: 'flex', gap: 8 }}>
+            <Dropdown align="end" className="d-inline">
+              <Dropdown.Toggle as="button" className="btn-outline-subtle" id="btn-export" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ExportIcon size={14} /> Export
+              </Dropdown.Toggle>
+              <Dropdown.Menu className={theme === 'dark' ? 'dropdown-menu-dark' : 'dropdown-menu-light shadow'}>
+                <Dropdown.Item onClick={() => handleExportApplications('excel')}>
+                  Export Excel (.xls)
+                </Dropdown.Item>
+                <Dropdown.Item onClick={() => handleExportApplications('pdf')}>
+                  Export PDF (.pdf)
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown>
+            <button className="btn-primary-glow" id="btn-new-application" onClick={() => handleOpenModal('individual')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <PlusIcon size={14} /> New
             </button>
           </div>
@@ -879,7 +1372,12 @@ function App() {
         {gridFilter !== 'all' && (
           <Alert variant="info" className="d-flex align-items-center justify-content-between py-2 px-3 mb-3 border-0 rounded-3 shadow-sm" style={{ fontSize: '0.9rem', background: 'rgba(0, 124, 195, 0.15)', color: 'var(--text-primary)' }}>
             <span>
-              <ReportIcon size={14} className="me-1 align-middle text-info" /> Showing <strong>{gridFilter === 'credit' ? 'Outstanding Customer Credits (To Receive)' : 'Pending Government Payouts (To be Paid Out)'}</strong> entries from Dashboard.
+              <ReportIcon size={14} className="me-1 align-middle text-info" /> Showing <strong>
+                {gridFilter === 'credit' ? 'Outstanding Customer Credits (To Receive)' :
+                  gridFilter === 'credit-company' ? 'Outstanding Company Credits (To Receive)' :
+                    gridFilter === 'credit-individual' ? 'Outstanding Individual Credits (To Receive)' :
+                      'Pending Government Payouts (To be Paid Out)'}
+              </strong> entries from Dashboard.
             </span>
             <Button variant="outline-info" size="sm" onClick={() => setGridFilter('all')} style={{ padding: '2px 8px', fontSize: '0.8rem', color: 'var(--text-primary)', borderColor: 'rgba(0, 124, 195, 0.3)' }}>
               Clear Filter
@@ -895,7 +1393,10 @@ function App() {
               <h3>Customer Applications</h3>
               <span className="record-count">{filteredApplications.length} records</span>
             </div>
-            <div className="grid-toolbar-right">
+            <div className="grid-toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="date" className="grid-filter-input" value={appStartDate} onChange={(e) => setAppStartDate(e.target.value)} style={{ width: 130, padding: '4px 8px', fontSize: '0.8rem' }} />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>to</span>
+              <input type="date" className="grid-filter-input" value={appEndDate} onChange={(e) => setAppEndDate(e.target.value)} style={{ width: 130, padding: '4px 8px', fontSize: '0.8rem' }} />
               <input className="grid-filter-input" type="text" placeholder="Filter records..." value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)} />
 
               <Dropdown align="end" className="d-inline">
@@ -944,6 +1445,10 @@ function App() {
                 quickFilterText={quickFilter}
                 pagination={true}
                 paginationPageSize={15}
+                onGridReady={onGridReady}
+                onColumnMoved={saveColumnState}
+                onColumnResized={saveColumnState}
+                onSortChanged={saveColumnState}
               />
             )}
           </div>
@@ -954,9 +1459,13 @@ function App() {
 
   // ── Category and Service selection (shared between tabs) ──
   const renderCategoryAndServiceSection = () => {
+    const isTravelsTab = modalTab === 'travels'
+    const tabCategories = categories.filter((cat) => (isTravelsTab ? cat.isTravel === true : cat.isTravel === false))
+    const tabCategoryIds = tabCategories.map((c) => c.id)
+
     const filteredServices = selectedCategoryId
       ? services.filter((s) => s.categoryId === parseInt(selectedCategoryId, 10))
-      : services
+      : services.filter((s) => tabCategoryIds.includes(s.categoryId))
 
     return (
       <>
@@ -979,7 +1488,7 @@ function App() {
               style={{ flex: 1 }}
             >
               <option value="">All Categories</option>
-              {categories.map((cat) => (
+              {tabCategories.map((cat) => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </Form.Select>
@@ -1031,7 +1540,7 @@ function App() {
               <option value="">Select a service...</option>
               {filteredServices.map((svc) => (
                 <option key={svc.id} value={svc.id}>
-                  {svc.name} — AED {svc.price.toFixed(2)} ({svc.category?.name})
+                  {svc.name} ({svc.category?.name})
                 </option>
               ))}
             </Form.Select>
@@ -1062,22 +1571,13 @@ function App() {
               onChange={(e) => setNewServiceName(e.target.value)}
               style={{ flex: '2 1 150px' }}
             />
-            <Form.Control
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="Price (AED)"
-              value={newServicePrice}
-              onChange={(e) => setNewServicePrice(e.target.value)}
-              style={{ flex: '1 1 80px' }}
-            />
             <Form.Select
               value={newServiceCategoryId || selectedCategoryId}
               onChange={(e) => setNewServiceCategoryId(e.target.value)}
               style={{ flex: '1 1 120px' }}
             >
               <option value="">Category...</option>
-              {categories.map((cat) => (
+              {tabCategories.map((cat) => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </Form.Select>
@@ -1101,26 +1601,135 @@ function App() {
     const selectedSvc = services.find(s => s.id === parseInt(formData.serviceId, 10))
     const isDeposit = selectedSvc && selectedSvc.name === 'Advance Deposit'
 
+    if (modalTab === 'travels') {
+      const price = parseFloat(formData.govtFee) || 0
+      const ourFee = parseFloat(formData.serviceCharge) || 0
+      const paid = parseFloat(formData.govtPaid) || 0
+      const travelsBalance = price - paid
+      const serviceChargeProfit = ourFee - price
+      const custPaid = parseFloat(formData.paidAmount) || 0
+      const custBalance = ourFee - custPaid
+
+      return (
+        <div className="modal-payment-section" style={{ marginTop: 0 }}>
+          <div className="modal-section-title"><SalesIcon size={18} className="me-2" />Payment Details</div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Price (typing center get for)</Form.Label>
+              <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={formData.govtFee} onChange={handleInputChange} />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Our Fee (we give to customer for)</Form.Label>
+              <Form.Control type="number" step="0.01" min="0" name="serviceCharge" placeholder="0.00" value={formData.serviceCharge} onChange={handleInputChange} />
+            </Form.Group>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Paid (money we pay to travels)</Form.Label>
+              <Form.Control type="number" step="0.01" min="0" name="govtPaid" placeholder="0.00" value={formData.govtPaid || ''} onChange={handleInputChange} />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Balance (to travels)</Form.Label>
+              <Form.Control type="text" readOnly value={`AED ${travelsBalance.toFixed(2)}`} style={{ fontWeight: 600, color: travelsBalance > 0 ? 'var(--danger)' : 'var(--success)' }} />
+            </Form.Group>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Service Charge (profit)</Form.Label>
+              <Form.Control type="text" readOnly value={`AED ${serviceChargeProfit.toFixed(2)}`} style={{ fontWeight: 600, color: serviceChargeProfit >= 0 ? 'var(--success)' : 'var(--danger)' }} />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Customer Paid</Form.Label>
+              <Form.Control type="number" step="0.01" min="0" name="paidAmount" placeholder="0.00" value={formData.paidAmount} onChange={handleInputChange} disabled={formData.customerPayment === 'Advance'} />
+            </Form.Group>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Paid By</Form.Label>
+              <Form.Select name="customerPayment" value={formData.customerPayment} onChange={handleInputChange}>
+                <option value="Cash">Cash</option>
+                <option value="Card">Card</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Account Transfer">Account Transfer</option>
+                <option value="Credit">Credit</option>
+                <option value="Advance">Advance</option>
+              </Form.Select>
+              {formData.customerPayment === 'Advance' && (() => {
+                let currentAdvance = 0
+                if (travelClientType === 'company' && formData.companyId) {
+                  const comp = companies.find(c => String(c.id) === formData.companyId)
+                  if (comp) currentAdvance = comp.advanceBalance || 0
+                } else if (travelClientType === 'individual' && formData.customerName) {
+                  const ind = individuals.find(i => i.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                  if (ind) currentAdvance = ind.advanceBalance || 0
+                }
+                const remaining = currentAdvance - (parseFloat(formData.paidAmount) || 0)
+                return (
+                  <div className="mt-2" style={{ fontSize: '0.82rem', lineHeight: '1.4' }}>
+                    <div style={{ color: 'var(--text-secondary)' }}>
+                      Available Advance: <strong className="text-success">AED {currentAdvance.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ color: remaining < 0 ? 'var(--danger)' : 'var(--text-secondary)', marginTop: 2, fontWeight: remaining < 0 ? 700 : 500 }}>
+                      Remaining: <strong>AED {remaining.toFixed(2)}</strong>
+                      {remaining < 0 && <span className="d-block text-danger mt-1"><WarningIcon size={14} className="me-1 text-danger" />Insufficient Advance Balance</span>}
+                    </div>
+                  </div>
+                )
+              })()}
+            </Form.Group>
+            <Form.Group>
+              <Form.Label className="modal-field-label">Customer Balance</Form.Label>
+              <Form.Control type="text" readOnly value={`AED ${custBalance.toFixed(2)}`} style={{ color: custBalance > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }} />
+            </Form.Group>
+          </div>
+
+          {editingApplicationId && (
+            <div style={{ marginTop: 12 }}>
+              <Form.Group>
+                <Form.Label className="modal-field-label">Status</Form.Label>
+                <Form.Select name="status" value={formData.status} onChange={handleInputChange}>
+                  <option value="Pending">Pending</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Rejected">Rejected</option>
+                  <option value="In Progress">In Progress</option>
+                </Form.Select>
+              </Form.Group>
+            </div>
+          )}
+        </div>
+      )
+    }
+
     return (
-      <div className="modal-payment-section">
+      <div className="modal-payment-section" style={{ marginTop: 0 }}>
         <div className="modal-section-title"><SalesIcon size={18} className="me-2" />Payment Details</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Form.Group>
-            <Form.Label className="modal-field-label">Received (AED)</Form.Label>
-            <Form.Control type="number" step="0.01" min="0" name="serviceCharge" placeholder="0.00" value={formData.serviceCharge} onChange={handleInputChange} />
+            <Form.Label className="modal-field-label">Govt Fee (AED)</Form.Label>
+            <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={isDeposit ? '0' : formData.govtFee} onChange={handleInputChange} disabled={isDeposit} />
           </Form.Group>
           <Form.Group>
-            <Form.Label className="modal-field-label">Paid (AED)</Form.Label>
-            <Form.Control type="number" step="0.01" min="0" name="govtFee" placeholder="0.00" value={isDeposit ? '0' : formData.govtFee} onChange={handleInputChange} disabled={formData.govtPayment === 'N/A' || isDeposit} />
-          </Form.Group>
-          <Form.Group>
-            <Form.Label className="modal-field-label">Typing Fee</Form.Label>
-            <Form.Control type="text" readOnly value={`AED ${typingFee.toFixed(2)}`} style={{ color: 'var(--success)', fontWeight: 600 }} />
+            <Form.Label className="modal-field-label">Typing Fee (AED)</Form.Label>
+            <Form.Control type="number" step="0.01" min="0" name="typingFee" placeholder="0.00" value={formData.typingFee} onChange={handleInputChange} />
           </Form.Group>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
           <Form.Group>
-            <Form.Label className="modal-field-label">Received</Form.Label>
+            <Form.Label className="modal-field-label">Customer Fee (AED)</Form.Label>
+            <Form.Control type="text" readOnly value={`AED ${customerFee.toFixed(2)}`} style={{ fontWeight: 600 }} />
+          </Form.Group>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Paid Amount (AED)</Form.Label>
+            <Form.Control type="number" step="0.01" min="0" name="paidAmount" placeholder="0.00" value={formData.paidAmount} onChange={handleInputChange} disabled={formData.customerPayment === 'Advance'} />
+          </Form.Group>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+          <Form.Group>
+            <Form.Label className="modal-field-label">Paid By</Form.Label>
             <Form.Select name="customerPayment" value={formData.customerPayment} onChange={handleInputChange}>
               <option value="Cash">Cash</option>
               <option value="Card">Card</option>
@@ -1129,29 +1738,88 @@ function App() {
               <option value="Credit">Credit</option>
               {!isDeposit && <option value="Advance">Advance</option>}
             </Form.Select>
+            {formData.customerPayment === 'Advance' && (() => {
+              let currentAdvance = 0
+              if (modalTab === 'company' && formData.companyId) {
+                const comp = companies.find(c => String(c.id) === formData.companyId)
+                if (comp) currentAdvance = comp.advanceBalance || 0
+              } else if (modalTab === 'individual' && formData.customerName) {
+                const ind = individuals.find(i => i.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                if (ind) currentAdvance = ind.advanceBalance || 0
+              }
+              const remaining = currentAdvance - (parseFloat(formData.paidAmount) || 0)
+              return (
+                <div className="mt-2" style={{ fontSize: '0.82rem', lineHeight: '1.4' }}>
+                  <div style={{ color: 'var(--text-secondary)' }}>
+                    Available Advance: <strong className="text-success">AED {currentAdvance.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ color: remaining < 0 ? 'var(--danger)' : 'var(--text-secondary)', marginTop: 2, fontWeight: remaining < 0 ? 700 : 500 }}>
+                    Remaining: <strong>AED {remaining.toFixed(2)}</strong>
+                    {remaining < 0 && <span className="d-block text-danger mt-1"><WarningIcon size={14} className="me-1 text-danger" />Insufficient Advance Balance</span>}
+                  </div>
+                </div>
+              )
+            })()}
           </Form.Group>
           <Form.Group>
-            <Form.Label className="modal-field-label">Paid To</Form.Label>
-            <Form.Select name="govtPayment" value={isDeposit ? 'N/A' : formData.govtPayment} onChange={handleInputChange} disabled={isDeposit}>
-              <option value="Cash">Cash</option>
-              <option value="N/A">N/A (None)</option>
-              {paymentCards.map((c) => (<option key={c.id} value={c.bankName}>{c.bankName}</option>))}
-            </Form.Select>
+            <Form.Label className="modal-field-label">Balance (AED)</Form.Label>
+            <Form.Control type="text" readOnly value={`AED ${balanceVal.toFixed(2)}`} style={{ color: balanceVal > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }} />
           </Form.Group>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginTop: 12 }}>
-          <Form.Group>
-            <Form.Label className="modal-field-label">Govt Entity (e.g. MOHRE, ICA, Immigration)</Form.Label>
-            <Form.Control
-              type="text"
-              name="govtEntity"
-              placeholder="e.g. MOHRE, ICA, Immigration"
-              value={isDeposit ? '' : (formData.govtEntity || '')}
-              onChange={handleInputChange}
-              disabled={formData.govtPayment === 'N/A' || isDeposit}
-            />
-          </Form.Group>
-        </div>
+        {modalTab !== 'travels' && (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <Form.Group>
+                <Form.Label className="modal-field-label">Entity</Form.Label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Form.Select
+                    name="govtEntity"
+                    value={isDeposit ? '' : (formData.govtEntity || '')}
+                    onChange={handleInputChange}
+                    disabled={isDeposit}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">Select Entity...</option>
+                    {govtEntities.map((ent) => (
+                      <option key={ent.id} value={ent.name}>{ent.name}</option>
+                    ))}
+                  </Form.Select>
+                  <button
+                    type="button"
+                    className="btn-outline-subtle d-flex align-items-center justify-content-center"
+                    style={{ whiteSpace: 'nowrap', padding: '4px 10px' }}
+                    disabled={isDeposit}
+                    onClick={() => {
+                      setShowAddGovtEntity(!showAddGovtEntity)
+                    }}
+                  >
+                    {showAddGovtEntity ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+                  </button>
+                </div>
+              </Form.Group>
+            </div>
+            {showAddGovtEntity && (
+              <div className="modal-inline-add" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <Form.Control
+                  type="text"
+                  placeholder="New govt entity name"
+                  value={newGovtEntityName}
+                  onChange={(e) => setNewGovtEntityName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn-primary-glow"
+                  style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+                  disabled={addingGovtEntity || !newGovtEntityName.trim()}
+                  onClick={handleAddGovtEntityInline}
+                >
+                  {addingGovtEntity ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
+                </button>
+              </div>
+            )}
+          </>
+        )}
         {editingApplicationId && (
           <div style={{ marginTop: 12 }}>
             <Form.Group>
@@ -1171,9 +1839,89 @@ function App() {
 
   if (checkingDb) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0d0f17', color: '#fff' }}>
-        <Spinner animation="border" variant="primary" style={{ width: '3rem', height: '3rem', marginBottom: 20 }} />
-        <h5>Connecting to Database...</h5>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        backgroundImage: `url(${screenBg})`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+        backgroundSize: 'cover',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Subtle decorative background glows */}
+        <div style={{
+          position: 'absolute',
+          width: '300px',
+          height: '300px',
+          background: 'rgba(16, 185, 129, 0.06)',
+          borderRadius: '50%',
+          filter: 'blur(80px)',
+          top: '20%',
+          left: '15%'
+        }} />
+        <div style={{
+          position: 'absolute',
+          width: '350px',
+          height: '350px',
+          background: 'rgba(92, 6, 30, 0.08)',
+          borderRadius: '50%',
+          filter: 'blur(100px)',
+          bottom: '15%',
+          right: '10%'
+        }} />
+
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.85)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255, 255, 255, 0.5)',
+          borderRadius: '24px',
+          padding: '40px 50px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.1)',
+          zIndex: 10
+        }}>
+          <img src={fcLogo} alt="Logo" style={{ width: 80, height: 80, objectFit: 'contain', marginBottom: 24 }} />
+          
+          <div className="mb-4" style={{ position: 'relative', width: '3.5rem', height: '3.5rem' }}>
+            <Spinner
+              animation="border"
+              style={{
+                width: '3.5rem',
+                height: '3.5rem',
+                color: '#5c061e',
+                borderWidth: '4px',
+                position: 'absolute',
+                top: 0,
+                left: 0
+              }}
+            />
+            <Spinner
+              animation="grow"
+              size="sm"
+              style={{
+                position: 'absolute',
+                top: 'calc(50% - 7px)',
+                left: 'calc(50% - 7px)',
+                color: '#10b981',
+                width: '14px',
+                height: '14px'
+              }}
+            />
+          </div>
+          
+          <h5 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, letterSpacing: '0.5px', margin: 0, color: '#5c061e' }}>
+            Connecting to Database...
+          </h5>
+          <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 8 }}>
+            Please wait while we establish a secure connection
+          </span>
+        </div>
       </div>
     )
   }
@@ -1195,7 +1943,7 @@ function App() {
         const saveRes = await window.api.saveDbConfig({ databaseUrl: testUrl })
         if (saveRes.success) {
           alert('Database connection configured! The application will restart to apply the settings.')
-          window.location.reload()
+          window.api.relaunchApp()
         } else {
           setDbSetupError(saveRes.error)
         }
@@ -1212,9 +1960,9 @@ function App() {
     }
 
     return (
-      <div className="login-container" style={{ backgroundImage: `url(${wallpaper})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundSize: 'cover' }}>
+      <div className="login-container" style={{ backgroundImage: `url(${screenBg})`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundSize: 'cover' }}>
         <div className="login-box" style={{ maxWidth: 430 }}>
-          <Card className="login-card shadow-lg">
+          <Card className="login-card shadow-lg" style={{ borderTop: '4px solid #113b2e' }}>
             <Card.Body className="p-4">
               <div className="text-center mb-4">
                 <img src={fcLogo} alt="Logo" style={{ width: 66, height: 66, objectFit: 'contain', display: 'block', margin: '0 auto 16px' }} />
@@ -1226,29 +1974,44 @@ function App() {
               </div>
 
               <p className="text-muted text-center small mb-4">Could not connect to the database. Please configure your Postgres server settings.</p>
-              
+
               {dbSetupError && <Alert variant="danger" className="small-alert text-center py-2 mb-3">{dbSetupError}</Alert>}
-              
+
               <Form onSubmit={handleDbSetupSubmit}>
                 <Form.Group className="mb-3">
-                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Database Server Host IP</Form.Label>
-                  <Form.Control type="text" name="host" value={dbConfig.host} onChange={handleDbConfigChange} required className="login-input" />
+                  <Form.Label className="small fw-semibold" style={{ color: '#113b2e' }}>Database Server Host IP</Form.Label>
+                  <div className="input-group-custom">
+                    <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center', color: '#113b2e' }}><ServerIcon size={16} /></span>
+                    <Form.Control type="text" name="host" value={dbConfig.host} onChange={handleDbConfigChange} required className="login-input" />
+                  </div>
                 </Form.Group>
                 <Form.Group className="mb-3">
-                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Port</Form.Label>
-                  <Form.Control type="text" name="port" value={dbConfig.port} onChange={handleDbConfigChange} required className="login-input" />
+                  <Form.Label className="small fw-semibold" style={{ color: '#113b2e' }}>Port</Form.Label>
+                  <div className="input-group-custom">
+                    <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center', color: '#113b2e' }}><PortIcon size={16} /></span>
+                    <Form.Control type="text" name="port" value={dbConfig.port} onChange={handleDbConfigChange} required className="login-input" />
+                  </div>
                 </Form.Group>
                 <Form.Group className="mb-3">
-                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Database Name</Form.Label>
-                  <Form.Control type="text" name="name" value={dbConfig.name} onChange={handleDbConfigChange} required className="login-input" />
+                  <Form.Label className="small fw-semibold" style={{ color: '#113b2e' }}>Database Name</Form.Label>
+                  <div className="input-group-custom">
+                    <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center', color: '#113b2e' }}><DatabaseIcon size={16} /></span>
+                    <Form.Control type="text" name="name" value={dbConfig.name} onChange={handleDbConfigChange} required className="login-input" />
+                  </div>
                 </Form.Group>
                 <Form.Group className="mb-3">
-                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Username</Form.Label>
-                  <Form.Control type="text" name="user" value={dbConfig.user} onChange={handleDbConfigChange} required className="login-input" />
+                  <Form.Label className="small fw-semibold" style={{ color: '#113b2e' }}>Username</Form.Label>
+                  <div className="input-group-custom">
+                    <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center', color: '#113b2e' }}><UserIcon size={16} /></span>
+                    <Form.Control type="text" name="user" value={dbConfig.user} onChange={handleDbConfigChange} required className="login-input" />
+                  </div>
                 </Form.Group>
                 <Form.Group className="mb-4">
-                  <Form.Label className="small fw-semibold" style={{ color: '#475569' }}>Password</Form.Label>
-                  <Form.Control type="password" name="password" value={dbConfig.password} onChange={handleDbConfigChange} required className="login-input" />
+                  <Form.Label className="small fw-semibold" style={{ color: '#113b2e' }}>Password</Form.Label>
+                  <div className="input-group-custom">
+                    <span className="input-icon" style={{ height: '100%', top: 0, display: 'flex', alignItems: 'center', color: '#113b2e' }}><KeyIcon size={16} /></span>
+                    <Form.Control type="password" name="password" value={dbConfig.password} onChange={handleDbConfigChange} required className="login-input" style={{ paddingRight: 40 }} />
+                  </div>
                 </Form.Group>
                 <Button type="submit" className="w-100 py-2 btn-login" disabled={dbSetupSaving}>
                   {dbSetupSaving ? <Spinner animation="border" size="sm" className="me-2" /> : <><SettingsIcon size={16} className="me-2" />Connect & Save</>}
@@ -1274,7 +2037,7 @@ function App() {
         </a>
         <div className="navbar-actions">
           <div className="navbar-search">
-            <span className="search-icon">🔍</span>
+             <span className="search-icon"><SearchIcon size={16} /></span>
             <input id="global-search" type="text" placeholder="Search anything..." />
           </div>
 
@@ -1347,123 +2110,511 @@ function App() {
           <Modal.Title>{editingApplicationId ? 'Edit Application' : 'New Application'}</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleSubmit}>
-          <Modal.Body>
-            {/* Tab Switcher */}
-            <div className="modal-tabs">
-              <button type="button" className={`modal-tab ${modalTab === 'individual' ? 'active' : ''}`} onClick={() => handleTabSwitch('individual')}>
-                Individual
-              </button>
-              <button type="button" className={`modal-tab ${modalTab === 'company' ? 'active' : ''}`} onClick={() => handleTabSwitch('company')}>
-                Company
-              </button>
-            </div>
-
-            {formError && <Alert variant="danger" className="mb-3" style={{ fontSize: '0.85rem' }}>{formError}</Alert>}
-
-            {/* ── Individual Tab ── */}
-            {modalTab === 'individual' && (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Customer Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
-                    <Form.Control type="text" name="customerName" placeholder="Full name" value={formData.customerName} onChange={handleInputChange} autoFocus />
-                    {(() => {
-                      const matchedInd = individuals.find(ind => ind.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
-                      if (matchedInd) {
-                        return (
-                          <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
-                            <SalesIcon size={14} /> Advance Balance: AED {(matchedInd.advanceBalance || 0).toFixed(2)}
-                          </div>
-                        )
-                      }
-                      return null
-                    })()}
-                  </Form.Group>
-                  <Form.Group className="mb-3">
-                    <Form.Label>Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
-                    <Form.Control type="tel" name="phone" placeholder="05X XXX XXXX" value={formData.phone} onChange={handleInputChange} />
-                  </Form.Group>
+          <Modal.Body style={{ padding: '20px 24px' }}>
+            {!editingApplicationId && (
+              <div className="d-flex flex-column gap-2 mb-4" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
+                <div className="d-flex gap-2 w-100">
+                  <button
+                    type="button"
+                    className={modalTab === 'individual' ? 'btn-primary-glow' : 'btn-outline-subtle'}
+                    onClick={() => handleTabSwitch('individual')}
+                    style={{ flex: 1, justifyContent: 'center', border: modalTab === 'individual' ? 'none' : '1px solid var(--border-color)' }}
+                  >
+                    Individual Application
+                  </button>
+                  <button
+                    type="button"
+                    className={modalTab === 'company' ? 'btn-primary-glow' : 'btn-outline-subtle'}
+                    onClick={() => handleTabSwitch('company')}
+                    style={{ flex: 1, justifyContent: 'center', border: modalTab === 'company' ? 'none' : '1px solid var(--border-color)' }}
+                  >
+                    Company Application
+                  </button>
+                  <button
+                    type="button"
+                    className={modalTab === 'advance' ? 'btn-primary-glow' : 'btn-outline-subtle'}
+                    onClick={() => handleTabSwitch('advance')}
+                    style={{ flex: 1, justifyContent: 'center', border: modalTab === 'advance' ? 'none' : '1px solid var(--border-color)' }}
+                  >
+                    Receive Advance
+                  </button>
                 </div>
-                <Form.Group className="mb-3">
-                  <Form.Check
-                    type="checkbox"
-                    id="save-to-individual-dir-check"
-                    label="Add this customer to the Individual Directory"
-                    checked={saveToDirectory}
-                    onChange={(e) => setSaveToDirectory(e.target.checked)}
-                    style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}
-                  />
-                </Form.Group>
-                {renderCategoryAndServiceSection()}
-                {renderPaymentSection()}
-              </>
+                <div className="d-flex gap-2 w-100">
+                  <button
+                    type="button"
+                    className={modalTab === 'travels' ? 'btn-primary-glow' : 'btn-outline-subtle'}
+                    onClick={() => handleTabSwitch('travels')}
+                    style={{ flex: 0.333, justifyContent: 'center', border: modalTab === 'travels' ? 'none' : '1px solid var(--border-color)' }}
+                  >
+                    Travels Application
+                  </button>
+                  <div style={{ flex: 0.667 }} />
+                </div>
+              </div>
             )}
 
-            {/* ── Company Tab ── */}
-            {modalTab === 'company' && (
-              <>
-                <Form.Group className="mb-3">
-                  <Form.Label>Company <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Form.Select name="companyId" value={formData.companyId} onChange={handleInputChange} style={{ flex: 1 }}>
-                      <option value="">Select a company...</option>
-                      {companies.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </Form.Select>
-                    <button type="button" className="btn-outline-subtle d-flex align-items-center justify-content-center" style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
-                      onClick={() => setShowAddCompany(!showAddCompany)}>
-                      {showAddCompany ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
-                    </button>
+            {formError && (
+              <Alert variant="danger" className="py-2 px-3 mb-3 border-0 rounded-3 text-white" style={{ background: 'rgba(239, 68, 68, 0.2)' }}>
+                <strong>Error:</strong> {formError}
+              </Alert>
+            )}
+
+            {modalTab === 'advance' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+                {/* Advance Type Selector (Company / Individual) */}
+                <Form.Group className="mb-2">
+                  <Form.Label className="modal-field-label">Deposit For</Form.Label>
+                  <div style={{ display: 'flex', gap: 24 }}>
+                    <Form.Check
+                      type="radio"
+                      id="advance-type-company"
+                      label="Company"
+                      name="advanceType"
+                      checked={advanceType === 'company'}
+                      onChange={() => { setAdvanceType('company'); setFormData(emptyForm); }}
+                      style={{ color: 'var(--text-primary)', cursor: 'pointer' }}
+                    />
+                    <Form.Check
+                      type="radio"
+                      id="advance-type-individual"
+                      label="Individual Client"
+                      name="advanceType"
+                      checked={advanceType === 'individual'}
+                      onChange={() => { setAdvanceType('individual'); setFormData(emptyForm); }}
+                      style={{ color: 'var(--text-primary)', cursor: 'pointer' }}
+                    />
                   </div>
-                  {(() => {
-                    const matchedComp = companies.find(c => String(c.id) === formData.companyId)
-                    if (matchedComp) {
-                      return (
-                        <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
-                          <SalesIcon size={14} /> Advance Balance: AED {(matchedComp.advanceBalance || 0).toFixed(2)}
-                        </div>
-                      )
-                    }
-                    return null
-                  })()}
                 </Form.Group>
 
-                {showAddCompany && (
-                  <div className="modal-inline-add">
-                    <Form.Control
-                      type="text"
-                      placeholder="New company name"
-                      value={newCompanyName}
-                      onChange={(e) => setNewCompanyName(e.target.value)}
-                      style={{ flex: 1 }}
-                    />
-                    <button type="button" className="btn-primary-glow" style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
-                      disabled={addingCompany || !newCompanyName.trim()} onClick={handleAddCompany}>
-                      {addingCompany ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
-                    </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.0fr 1.0fr', gap: 20, alignItems: 'start' }}>
+                  {/* Left Column: Client Selection */}
+                  <div>
+                    {advanceType === 'company' ? (
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Company <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                        <Form.Select
+                          name="companyId"
+                          value={formData.companyId}
+                          onChange={handleInputChange}
+                        >
+                          <option value="">Select a company...</option>
+                          {companies.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </Form.Select>
+                        {(() => {
+                          const matchedComp = companies.find(c => String(c.id) === formData.companyId)
+                          if (matchedComp) {
+                            return (
+                              <div className="mt-2 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                <SalesIcon size={14} /> Current Advance: AED {(matchedComp.advanceBalance || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+                      </Form.Group>
+                    ) : (
+                      <>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Customer Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                          <Form.Control
+                            type="text"
+                            name="customerName"
+                            placeholder="Full name"
+                            value={formData.customerName}
+                            onChange={handleInputChange}
+                            autoFocus
+                          />
+                          {(() => {
+                            const matchedInd = individuals.find(ind => ind.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                            if (matchedInd) {
+                              return (
+                                <div className="mt-2 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                  <SalesIcon size={14} /> Current Advance: AED {(matchedInd.advanceBalance || 0).toFixed(2)}
+                                </div>
+                              )
+                            }
+                            return null
+                          })()}
+                        </Form.Group>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Phone <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                          <Form.Control
+                            type="tel"
+                            name="phone"
+                            placeholder="05X XXX XXXX"
+                            value={formData.phone}
+                            onChange={handleInputChange}
+                          />
+                        </Form.Group>
+                      </>
+                    )}
                   </div>
-                )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {/* Right Column: Deposit Details */}
+                  <div>
+                    <Form.Group className="mb-3">
+                      <Form.Label className="modal-field-label">Advance Amount Received (AED) <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                      <Form.Control
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        name="paidAmount"
+                        placeholder="0.00"
+                        value={formData.paidAmount}
+                        onChange={handleInputChange}
+                      />
+                    </Form.Group>
+
+                    <Form.Group className="mb-3">
+                      <Form.Label className="modal-field-label">Payment Method <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                      <Form.Select
+                        name="customerPayment"
+                        value={formData.customerPayment}
+                        onChange={handleInputChange}
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Card">Card</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Account Transfer">Account Transfer</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </div>
+                </div>
+              </div>
+            ) : modalTab === 'travels' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1.0fr 1.3fr', gap: 20, alignItems: 'start' }}>
+                {/* Left Column: Client & Service Details */}
+                <div>
+                  {/* Travel Supplier Dropdown */}
                   <Form.Group className="mb-3">
-                    <Form.Label>Contact Person <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
-                    <Form.Control type="text" name="customerName" placeholder="Contact person name" value={formData.customerName} onChange={handleInputChange} />
+                    <Form.Label className="modal-field-label">Travel Supplier / Entity <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Form.Select
+                        name="govtEntity"
+                        value={formData.govtEntity}
+                        onChange={handleInputChange}
+                        style={{ flex: 1 }}
+                      >
+                        <option value="">Select Travel Supplier...</option>
+                        {travelSuppliers.map((sup) => (
+                          <option key={sup.id} value={sup.name}>{sup.name}</option>
+                        ))}
+                      </Form.Select>
+                      <button
+                        type="button"
+                        className="btn-outline-subtle d-flex align-items-center justify-content-center"
+                        style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+                        onClick={() => {
+                          setShowAddTravelSupplier(!showAddTravelSupplier)
+                        }}
+                      >
+                        {showAddTravelSupplier ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+                      </button>
+                    </div>
                   </Form.Group>
+
+                  {showAddTravelSupplier && (
+                    <div className="modal-inline-add mb-3" style={{ display: 'flex', gap: 8 }}>
+                      <Form.Control
+                        type="text"
+                        placeholder="New travel supplier name"
+                        value={newTravelSupplierName}
+                        onChange={(e) => setNewTravelSupplierName(e.target.value)}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-primary-glow"
+                        style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+                        disabled={addingTravelSupplier || !newTravelSupplierName.trim()}
+                        onClick={handleAddTravelSupplierInline}
+                      >
+                        {addingTravelSupplier ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Traveler Category radio buttons */}
                   <Form.Group className="mb-3">
-                    <Form.Label>Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
-                    <Form.Control type="tel" name="phone" placeholder="05X XXX XXXX" value={formData.phone} onChange={handleInputChange} />
+                    <Form.Label className="modal-field-label">Traveler Category</Form.Label>
+                    <div style={{ display: 'flex', gap: 24 }}>
+                      <Form.Check
+                        type="radio"
+                        id="travel-client-individual"
+                        label="Individual Client"
+                        name="travelClientType"
+                        checked={travelClientType === 'individual'}
+                        onChange={() => handleTravelClientTypeChange('individual')}
+                        style={{ color: 'var(--text-primary)', cursor: 'pointer' }}
+                      />
+                      <Form.Check
+                        type="radio"
+                        id="travel-client-company"
+                        label="Company Client"
+                        name="travelClientType"
+                        checked={travelClientType === 'company'}
+                        onChange={() => handleTravelClientTypeChange('company')}
+                        style={{ color: 'var(--text-primary)', cursor: 'pointer' }}
+                      />
+                    </div>
                   </Form.Group>
+
+                  {/* Individual fields */}
+                  {travelClientType === 'individual' ? (
+                    <>
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Customer Name / Traveler <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                        <Form.Control
+                          type="text"
+                          name="customerName"
+                          placeholder="Full name"
+                          value={formData.customerName}
+                          onChange={handleInputChange}
+                        />
+                        {(() => {
+                          const matchedInd = individuals.find(ind => ind.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                          if (matchedInd) {
+                            return (
+                              <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                <SalesIcon size={14} /> Advance: AED {(matchedInd.advanceBalance || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
+                        <Form.Control
+                          type="tel"
+                          name="phone"
+                          placeholder="05X XXX XXXX"
+                          value={formData.phone}
+                          onChange={handleInputChange}
+                        />
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Check
+                          type="checkbox"
+                          id="travel-save-to-individual-dir-check"
+                          label="Add this customer to the Individual Directory"
+                          checked={saveToDirectory}
+                          onChange={(e) => setSaveToDirectory(e.target.checked)}
+                          style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}
+                        />
+                      </Form.Group>
+                    </>
+                  ) : (
+                    <>
+                      {/* Company fields */}
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Company <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Form.Select
+                            name="companyId"
+                            value={formData.companyId}
+                            onChange={handleInputChange}
+                            style={{ flex: 1 }}
+                          >
+                            <option value="">Select a company...</option>
+                            {companies.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </Form.Select>
+                          <button
+                            type="button"
+                            className="btn-outline-subtle d-flex align-items-center justify-content-center"
+                            style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+                            onClick={() => {
+                              setShowAddCompany(!showAddCompany)
+                              setShowAddCategory(false)
+                              setShowAddService(false)
+                            }}
+                          >
+                            {showAddCompany ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+                          </button>
+                        </div>
+                        {(() => {
+                          const matchedComp = companies.find(c => String(c.id) === formData.companyId)
+                          if (matchedComp) {
+                            return (
+                              <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                <SalesIcon size={14} /> Advance: AED {(matchedComp.advanceBalance || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+                      </Form.Group>
+
+                      {showAddCompany && (
+                        <div className="modal-inline-add mb-3">
+                          <Form.Control
+                            type="text"
+                            placeholder="New company name"
+                            value={newCompanyName}
+                            onChange={(e) => setNewCompanyName(e.target.value)}
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="btn-primary-glow"
+                            style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+                            disabled={addingCompany || !newCompanyName.trim()}
+                            onClick={handleAddCompany}
+                          >
+                            {addingCompany ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
+                          </button>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Traveller Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                          <Form.Control
+                            type="text"
+                            name="customerName"
+                            placeholder="Name"
+                            value={formData.customerName}
+                            onChange={handleInputChange}
+                          />
+                        </Form.Group>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
+                          <Form.Control
+                            type="tel"
+                            name="phone"
+                            placeholder="05X XXX XXXX"
+                            value={formData.phone}
+                            onChange={handleInputChange}
+                          />
+                        </Form.Group>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Service and Category Selection */}
+                  {renderCategoryAndServiceSection()}
                 </div>
 
-                {renderCategoryAndServiceSection()}
-                {renderPaymentSection()}
-              </>
+                {/* Right Column: Payment Details */}
+                <div>
+                  {renderPaymentSection()}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1.0fr 1.3fr', gap: 20, alignItems: 'start' }}>
+                {/* Left Column: Client & Service Details */}
+                <div>
+                  {modalTab === 'individual' ? (
+                    <>
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Customer Name <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                        <Form.Control type="text" name="customerName" placeholder="Full name" value={formData.customerName} onChange={handleInputChange} autoFocus />
+                        {(() => {
+                          const matchedInd = individuals.find(ind => ind.name.toLowerCase().trim() === formData.customerName.toLowerCase().trim())
+                          if (matchedInd) {
+                            return (
+                              <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                <SalesIcon size={14} /> Advance: AED {(matchedInd.advanceBalance || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
+                        <Form.Control type="tel" name="phone" placeholder="05X XXX XXXX" value={formData.phone} onChange={handleInputChange} />
+                      </Form.Group>
+                      <Form.Group className="mb-3">
+                        <Form.Check
+                          type="checkbox"
+                          id="save-to-individual-dir-check"
+                          label="Add this customer to the Individual Directory"
+                          checked={saveToDirectory}
+                          onChange={(e) => setSaveToDirectory(e.target.checked)}
+                          style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}
+                        />
+                      </Form.Group>
+                    </>
+                  ) : (
+                    <>
+                      <Form.Group className="mb-3">
+                        <Form.Label className="modal-field-label">Company <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <Form.Select name="companyId" value={formData.companyId} onChange={handleInputChange} style={{ flex: 1 }}>
+                            <option value="">Select a company...</option>
+                            {companies.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </Form.Select>
+                          <button type="button" className="btn-outline-subtle d-flex align-items-center justify-content-center" style={{ whiteSpace: 'nowrap', padding: '6px 14px' }}
+                            onClick={() => {
+                              setShowAddCompany(!showAddCompany)
+                              setShowAddCategory(false)
+                              setShowAddService(false)
+                            }}>
+                            {showAddCompany ? <CloseIcon size={12} /> : <PlusIcon size={12} />}
+                          </button>
+                        </div>
+                        {(() => {
+                          const matchedComp = companies.find(c => String(c.id) === formData.companyId)
+                          if (matchedComp) {
+                            return (
+                              <div className="mt-1 text-success fw-bold d-flex align-items-center gap-1" style={{ fontSize: '0.85rem' }}>
+                                <SalesIcon size={14} /> Advance: AED {(matchedComp.advanceBalance || 0).toFixed(2)}
+                              </div>
+                            )
+                          }
+                          return null
+                        })()}
+                      </Form.Group>
+
+                      {showAddCompany && (
+                        <div className="modal-inline-add mb-3">
+                          <Form.Control
+                            type="text"
+                            placeholder="New company name"
+                            value={newCompanyName}
+                            onChange={(e) => setNewCompanyName(e.target.value)}
+                            style={{ flex: 1 }}
+                          />
+                          <button type="button" className="btn-primary-glow" style={{ padding: '6px 16px', border: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}
+                            disabled={addingCompany || !newCompanyName.trim()} onClick={handleAddCompany}>
+                            {addingCompany ? <Spinner animation="border" size="sm" /> : <><SaveIcon size={12} /> Save</>}
+                          </button>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Contact Person <span style={{ color: 'var(--danger)' }}>*</span></Form.Label>
+                          <Form.Control type="text" name="customerName" placeholder="Name" value={formData.customerName} onChange={handleInputChange} />
+                        </Form.Group>
+                        <Form.Group className="mb-3">
+                          <Form.Label className="modal-field-label">Phone <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>(optional)</span></Form.Label>
+                          <Form.Control type="tel" name="phone" placeholder="05X XXX XXXX" value={formData.phone} onChange={handleInputChange} />
+                        </Form.Group>
+                      </div>
+                    </>
+                  )}
+
+                  {renderCategoryAndServiceSection()}
+                </div>
+
+                {/* Right Column: Payment Details */}
+                <div>
+                  {renderPaymentSection()}
+                </div>
+              </div>
             )}
           </Modal.Body>
           <Modal.Footer>
             <Button variant="outline-secondary" onClick={handleCloseModal} disabled={saving}>Cancel</Button>
-            <Button type="submit" className="btn-primary-glow" disabled={saving || services.length === 0} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Button type="submit" className="btn-primary-glow" disabled={saving || (modalTab !== 'advance' && services.length === 0)} style={{ border: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
               {saving ? <><Spinner animation="border" size="sm" className="me-2" />Saving...</> : <><SaveIcon size={14} /> Save</>}
             </Button>
           </Modal.Footer>

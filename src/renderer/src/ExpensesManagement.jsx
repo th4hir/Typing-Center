@@ -1,8 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Table, Button, Form, Spinner, Alert } from 'react-bootstrap'
+import { Table, Button, Form, Spinner, Alert, Dropdown } from 'react-bootstrap'
 import { PlusIcon, EditIcon, TrashIcon, RefreshIcon, SaveIcon, CardIcon, BillIcon } from './Icons'
+import { useTableColumns } from './useTableColumns'
 
 function ExpensesManagement() {
+  const expensesCols = useTableColumns('expenses_list', ['date', 'description', 'amount', 'paymentMethod', 'actions'], {
+    date: 'Date',
+    description: 'Description',
+    amount: 'Amount (AED)',
+    paymentMethod: 'Paid Via',
+    actions: 'Action'
+  })
+
   const [expenses, setExpenses] = useState([])
   const [paymentCards, setPaymentCards] = useState([])
   const [loading, setLoading] = useState(true)
@@ -270,7 +279,7 @@ function ExpensesManagement() {
               <span className="admin-card-count">{filteredExpenses.length} entries</span>
             </div>
           </div>
-          <div className="admin-form">
+          <div className="admin-form" style={{ display: 'flex', gap: 10 }}>
             <Form.Control
               type="text"
               placeholder="Search expenses..."
@@ -279,6 +288,27 @@ function ExpensesManagement() {
               className="admin-input"
               style={{ flex: 1 }}
             />
+            <Dropdown align="end" className="d-inline">
+              <Dropdown.Toggle as="button" className="btn-outline-subtle" id="col-selector-dropdown-expenses">
+                Columns
+              </Dropdown.Toggle>
+              <Dropdown.Menu className="dropdown-menu-dark p-3" style={{ minWidth: 200 }}>
+                <h6 className="dropdown-header px-0 pt-0 pb-2 border-bottom text-start" style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>Visible Columns</h6>
+                <div className="pt-2 d-flex flex-column gap-2" style={{ maxHeight: 250, overflowY: 'auto' }}>
+                  {expensesCols.colOrder.map((col) => (
+                    <label key={col} className="d-flex align-items-center text-start" style={{ cursor: 'pointer', fontSize: '0.85rem', gap: 8, color: 'var(--text-primary)', fontWeight: 500, margin: 0, userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={expensesCols.colVisible[col]}
+                        onChange={() => expensesCols.toggleColumn(col)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      {expensesCols.friendlyNames[col]}
+                    </label>
+                  ))}
+                </div>
+              </Dropdown.Menu>
+            </Dropdown>
             <Button variant="outline-secondary" className="btn-outline-subtle" onClick={loadExpenses} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <RefreshIcon size={14} /> Refresh
             </Button>
@@ -293,39 +323,78 @@ function ExpensesManagement() {
               <Table className="admin-table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th style={{ textAlign: 'right' }}>Amount (AED)</th>
-                    <th>Paid Via</th>
-                    <th style={{ textAlign: 'center' }}>Action</th>
+                    {expensesCols.colOrder.map((colId, index) => {
+                      if (!expensesCols.colVisible[colId]) return null
+                      let style = { cursor: 'move', userSelect: 'none' }
+                      if (colId === 'amount') {
+                        style.textAlign = 'right'
+                      } else if (colId === 'actions') {
+                        style.textAlign = 'center'
+                      }
+                      return (
+                        <th
+                          key={colId}
+                          draggable
+                          onDragStart={(e) => expensesCols.handleDragStart(e, index)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => expensesCols.handleDrop(e, index)}
+                          style={style}
+                          title="Drag to rearrange column order"
+                        >
+                          {expensesCols.friendlyNames[colId]}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredExpenses.length === 0 ? (
-                    <tr><td colSpan={5} className="admin-empty">No expenses matched search</td></tr>
+                    <tr><td colSpan={expensesCols.colOrder.filter(c => expensesCols.colVisible[c]).length} className="admin-empty">No expenses matched search</td></tr>
                   ) : (
                     filteredExpenses.map((exp) => (
                       <tr key={exp.id}>
-                        <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                          {new Date(exp.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="fw-semibold">{exp.description}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                          {exp.amount.toFixed(2)}
-                        </td>
-                        <td>
-                          <span className="payment-method-badge">{exp.paymentMethod}</span>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <div className="d-flex justify-content-center gap-2">
-                            <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 10px', fontSize: '0.72rem' }} onClick={() => handleEditExpense(exp)}>
-                              <EditIcon size={11} /> Edit
-                            </button>
-                            <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 10px', fontSize: '0.72rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteExpense(exp)}>
-                              <TrashIcon size={11} /> Delete
-                            </button>
-                          </div>
-                        </td>
+                        {expensesCols.colOrder.map((colId) => {
+                          if (!expensesCols.colVisible[colId]) return null
+                          switch (colId) {
+                            case 'date':
+                              return (
+                                <td key={colId} style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                  {new Date(exp.createdAt).toLocaleDateString('en-AE', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </td>
+                              )
+                            case 'description':
+                              return (
+                                <td key={colId} className="fw-semibold">{exp.description}</td>
+                              )
+                            case 'amount':
+                              return (
+                                <td key={colId} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                                  {exp.amount.toFixed(2)}
+                                </td>
+                              )
+                            case 'paymentMethod':
+                              return (
+                                <td key={colId}>
+                                  <span className="payment-method-badge">{exp.paymentMethod}</span>
+                                </td>
+                              )
+                            case 'actions':
+                              return (
+                                <td key={colId} style={{ textAlign: 'center' }}>
+                                  <div className="d-flex justify-content-center gap-2">
+                                    <button className="btn-outline-subtle d-flex align-items-center gap-1" style={{ padding: '4px 10px', fontSize: '0.72rem' }} onClick={() => handleEditExpense(exp)}>
+                                      <EditIcon size={11} /> Edit
+                                    </button>
+                                    <button className="btn-outline-subtle text-danger d-flex align-items-center gap-1" style={{ padding: '4px 10px', fontSize: '0.72rem', borderColor: 'rgba(239, 68, 68, 0.2)' }} onClick={() => handleDeleteExpense(exp)}>
+                                      <TrashIcon size={11} /> Delete
+                                    </button>
+                                  </div>
+                                </td>
+                              )
+                            default:
+                              return null
+                          }
+                        })}
                       </tr>
                     ))
                   )}
@@ -333,11 +402,27 @@ function ExpensesManagement() {
                 {filteredExpenses.length > 0 && (
                   <tfoot>
                     <tr style={{ background: 'var(--accent-glow)', borderTop: '2px solid var(--accent-primary)' }}>
-                      <td colSpan={2} style={{ fontWeight: 700, padding: '12px 24px' }}>TOTAL</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', padding: '12px 24px' }}>
-                        {grandTotal.toFixed(2)}
-                      </td>
-                      <td colSpan={2}></td>
+                      {(() => {
+                        const visibleCols = expensesCols.colOrder.filter(c => expensesCols.colVisible[c]);
+                        const amountIndex = visibleCols.indexOf('amount');
+                        if (amountIndex === -1) {
+                          return (
+                            <td colSpan={visibleCols.length} style={{ fontWeight: 700, padding: '12px 24px' }}>
+                              TOTAL: AED {grandTotal.toFixed(2)}
+                            </td>
+                          );
+                        } else {
+                          return (
+                            <>
+                              <td colSpan={amountIndex} style={{ fontWeight: 700, padding: '12px 24px' }}>TOTAL</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', padding: '12px 24px' }}>
+                                {grandTotal.toFixed(2)}
+                              </td>
+                              <td colSpan={visibleCols.length - amountIndex - 1}></td>
+                            </>
+                          );
+                        }
+                      })()}
                     </tr>
                   </tfoot>
                 )}
